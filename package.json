@@ -1,0 +1,12 @@
+{
+  "name": "trip-log",
+  "private": true,
+  "workspaces": [
+    "apps/frontend"
+  ],
+  "scripts": {
+    "build": "npm -w apps/frontend run build",
+    "lint": "npm -w apps/frontend run lint",
+    "type-check": "npm -w apps/frontend run type-check"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "buildCommand": "npm run build",
+  "outputDirectory": "apps/frontend/.next",
+  "framework": "nextjs",
+  "installCommand": "npm install",
+  "functions": {},
+  "env": {
+    "NEXT_PUBLIC_APP_NAME": "Utazás Napló V2"
+  }
+}
