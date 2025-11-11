@@ -8,6 +8,14 @@ import Card from "../components/Card";
 
 const API_BASE = process.env.NEXT_PUBLIC_APP_API_BASE || "";
 
+// Segédfüggvény: ha az API_BASE már tartalmaz "?"-t (googleusercontent.com/echo), akkor "&path=",
+// ha nem (script.google.com/exec), akkor "?path="
+function withPath(path) {
+  if (!API_BASE) return "";
+  const sep = API_BASE.includes("?") ? "&" : "?";
+  return `${API_BASE}${sep}path=${encodeURIComponent(path)}`;
+}
+
 export default function NewTripPage() {
   const [form, setForm] = useState({
     title: "",
@@ -26,8 +34,7 @@ export default function NewTripPage() {
   function validate() {
     if (!form.title.trim()) return "Az utazás neve kötelező.";
     if (!form.destination.trim()) return "A desztináció kötelező.";
-    if (!form.dateFrom || !form.dateTo) return "A dátum mezők kötelezőek.";
-    if (form.dateFrom > form.dateTo) return "A 'Mettől' nem lehet későbbi mint a 'Meddig'.";
+    if (form.dateFrom && form.dateTo && form.dateFrom > form.dateTo) return "A 'Mettől' nem lehet későbbi mint a 'Meddig'.";
     return null;
   }
 
@@ -39,10 +46,12 @@ export default function NewTripPage() {
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}?path=new-trip`, {
+      const res = await fetch(withPath("new-trip"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form)
+        // 'simple request' -> nincs preflight
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(form),
+        redirect: "follow"
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || "Hiba történt");
@@ -71,8 +80,8 @@ export default function NewTripPage() {
           <Input label="Desztináció" name="destination" required value={form.destination} onChange={onChange} placeholder="Pl. Siófok" />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Input label="Mettől" type="date" name="dateFrom" required value={form.dateFrom} onChange={onChange} />
-            <Input label="Meddig" type="date" name="dateTo" required value={form.dateTo} onChange={onChange} />
+            <Input label="Mettől" type="date" name="dateFrom" value={form.dateFrom} onChange={onChange} />
+            <Input label="Meddig" type="date" name="dateTo" value={form.dateTo} onChange={onChange} />
           </div>
 
           <Select
