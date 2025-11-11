@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
-const API_BASE = process.env.NEXT_PUBLIC_APP_API_BASE || ""; // GAS end-user URL (googleusercontent.com... vagy exec)
+// Szerver: elsődlegesen az /exec URL-t használjuk (APP_API_BASE_SERVER).
+// Ha nincs megadva, fallback a NEXT_PUBLIC_APP_API_BASE-re.
+const SERVER_BASE = process.env.APP_API_BASE_SERVER || process.env.NEXT_PUBLIC_APP_API_BASE || "";
 
 function withPath(base, path) {
   if (!base) return "";
@@ -10,9 +12,9 @@ function withPath(base, path) {
 
 export async function GET(_req, { params }) {
   try {
-    const target = withPath(API_BASE, params.path);
+    const target = withPath(SERVER_BASE, params.path);
     if (!target) return NextResponse.json({ error: "API base missing" }, { status: 500 });
-    const res = await fetch(target, { method: "GET" });
+    const res = await fetch(target, { method: "GET", redirect: "follow", cache: "no-store" });
     const json = await res.json().catch(() => ({}));
     return NextResponse.json(json, { status: res.ok ? 200 : res.status || 502 });
   } catch (e) {
@@ -22,14 +24,16 @@ export async function GET(_req, { params }) {
 
 export async function POST(req, { params }) {
   try {
-    const target = withPath(API_BASE, params.path);
+    const target = withPath(SERVER_BASE, params.path);
     if (!target) return NextResponse.json({ error: "API base missing" }, { status: 500 });
 
-    const body = await req.text(); // továbbítjuk változtatás nélkül
+    const body = await req.text(); // JSON szöveg (változtatás nélkül továbbítjuk)
     const res = await fetch(target, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body
+      body,
+      redirect: "follow",
+      cache: "no-store"
     });
     const json = await res.json().catch(() => ({}));
     return NextResponse.json(json, { status: res.ok ? 200 : res.status || 502 });
