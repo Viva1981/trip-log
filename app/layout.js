@@ -1,3 +1,4 @@
+import "./globals.css";
 import { getServerSession } from "next-auth";
 import { authOptions } from "./api/auth/[...nextauth]/route";
 
@@ -15,20 +16,20 @@ export default async function RootLayout({ children }) {
         <link rel="manifest" href="/manifest.webmanifest" />
         <meta name="theme-color" content="#0ea5e9" />
       </head>
-      <body style={{maxWidth:"64rem",margin:"0 auto",padding:"1rem"}}>
-        <header style={{padding:"1rem 0",borderBottom:"1px solid #e5e7eb",marginBottom:"1rem",display:"flex",justifyContent:"space-between"}}>
-          <strong>Trip Log</strong>
-          <nav style={{fontSize:"0.95rem"}}>
-            <a href="/profile" style={{textDecoration:"underline"}}>Profil</a>
-            <span style={{margin:"0 0.5rem"}}>·</span>
+      <body className="max-w-4xl mx-auto p-4">
+        <header className="py-4 border-b mb-4 flex justify-between items-center">
+          <strong className="text-lg">Trip Log</strong>
+          <nav className="text-sm space-x-2">
+            <a href="/profile" className="underline">Profil</a>
+            <span>·</span>
             {session ? (
-              <a href="/api/auth/signout" style={{textDecoration:"underline"}}>Kijelentkezés</a>
+              <a href="/api/auth/signout" className="underline">Kijelentkezés</a>
             ) : (
-              <a href="/api/auth/signin" style={{textDecoration:"underline"}}>Bejelentkezés</a>
+              <a href="/api/auth/signin" className="underline">Bejelentkezés</a>
             )}
           </nav>
         </header>
-        {children}
+        <main>{children}</main>
 
         <script dangerouslySetInnerHTML={{__html: `
           if ('serviceWorker' in navigator) {
