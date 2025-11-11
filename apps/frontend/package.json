@@ -14,8 +14,16 @@
     "react": "18.3.1",
     "react-dom": "18.3.1"
   },
+  "devDependencies": {
+    "@types/node": "20.11.30",
+    "@types/react": "18.2.66",
+    "@types/react-dom": "18.2.22",
+    "autoprefixer": "10.4.19",
+    "eslint": "8.57.0",
+    "eslint-config-next": "14.2.10",
+    "postcss": "8.4.38",
 
-cat > apps/frontend/package.json << 'EOF'
+cat > "apps/frontend/package.json" << 'EOF'
 {
   "name": "frontend",
   "private": true,
