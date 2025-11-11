@@ -4,6 +4,9 @@
   "workspaces": [
     "apps/frontend"
   ],
+  "engines": {
+    "node": ">=18.18.0"
+  },
   "scripts": {
     "build": "npm -w apps/frontend run build",
     "lint": "npm -w apps/frontend run lint",
