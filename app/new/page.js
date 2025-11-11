@@ -6,16 +6,6 @@ import Input from "../components/Input";
 import Select from "../components/Select";
 import Card from "../components/Card";
 
-const API_BASE = process.env.NEXT_PUBLIC_APP_API_BASE || "";
-
-// Segédfüggvény: ha az API_BASE már tartalmaz "?"-t (googleusercontent.com/echo), akkor "&path=",
-// ha nem (script.google.com/exec), akkor "?path="
-function withPath(path) {
-  if (!API_BASE) return "";
-  const sep = API_BASE.includes("?") ? "&" : "?";
-  return `${API_BASE}${sep}path=${encodeURIComponent(path)}`;
-}
-
 export default function NewTripPage() {
   const [form, setForm] = useState({
     title: "",
@@ -23,7 +13,7 @@ export default function NewTripPage() {
     dateFrom: "",
     dateTo: "",
     visibility: "public",
-    companions: "" // vesszővel elválasztott e-mail címek
+    companions: ""
   });
   const [loading, setLoading] = useState(false);
 
@@ -34,7 +24,8 @@ export default function NewTripPage() {
   function validate() {
     if (!form.title.trim()) return "Az utazás neve kötelező.";
     if (!form.destination.trim()) return "A desztináció kötelező.";
-    if (form.dateFrom && form.dateTo && form.dateFrom > form.dateTo) return "A 'Mettől' nem lehet későbbi mint a 'Meddig'.";
+    if (form.dateFrom && form.dateTo && form.dateFrom > form.dateTo)
+      return "A 'Mettől' nem lehet későbbi mint a 'Meddig'.";
     return null;
   }
 
@@ -42,16 +33,13 @@ export default function NewTripPage() {
     e.preventDefault();
     const err = validate();
     if (err) return alert(err);
-    if (!API_BASE) return alert("Hiányzik az API URL. Állítsd be: NEXT_PUBLIC_APP_API_BASE");
 
     setLoading(true);
     try {
-      const res = await fetch(withPath("new-trip"), {
+      const res = await fetch("/api/gs/new-trip", {
         method: "POST",
-        // 'simple request' -> nincs preflight
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify(form),
-        redirect: "follow"
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form)
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || "Hiba történt");
@@ -78,12 +66,10 @@ export default function NewTripPage() {
         <form onSubmit={onSubmit} className="space-y-4">
           <Input label="Utazás neve" name="title" required value={form.title} onChange={onChange} placeholder="Pl. Nyár a Balatonon" />
           <Input label="Desztináció" name="destination" required value={form.destination} onChange={onChange} placeholder="Pl. Siófok" />
-
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input label="Mettől" type="date" name="dateFrom" value={form.dateFrom} onChange={onChange} />
             <Input label="Meddig" type="date" name="dateTo" value={form.dateTo} onChange={onChange} />
           </div>
-
           <Select
             label="Láthatóság"
             name="visibility"
@@ -94,7 +80,6 @@ export default function NewTripPage() {
               { value: "private", label: "Privát" }
             ]}
           />
-
           <label className="block text-sm space-y-1">
             <span className="text-gray-700">Útitársak (e-mail, vesszővel elválasztva)</span>
             <textarea
@@ -106,7 +91,6 @@ export default function NewTripPage() {
               placeholder="pelda1@email.com, pelda2@email.com"
             />
           </label>
-
           <div className="flex gap-2">
             <Button type="submit" disabled={loading}>{loading ? "Küldés..." : "Létrehozás"}</Button>
             <Button type="button" variant="secondary" onClick={() => history.back()} disabled={loading}>Mégse</Button>
