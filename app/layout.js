@@ -11,6 +11,10 @@ export default async function RootLayout({ children }) {
 
   return (
     <html lang="hu">
+      <head>
+        <link rel="manifest" href="/manifest.webmanifest" />
+        <meta name="theme-color" content="#0ea5e9" />
+      </head>
       <body style={{maxWidth:"64rem",margin:"0 auto",padding:"1rem"}}>
         <header style={{padding:"1rem 0",borderBottom:"1px solid #e5e7eb",marginBottom:"1rem",display:"flex",justifyContent:"space-between"}}>
           <strong>Trip Log</strong>
@@ -25,6 +29,14 @@ export default async function RootLayout({ children }) {
           </nav>
         </header>
         {children}
+
+        <script dangerouslySetInnerHTML={{__html: `
+          if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function() {
+              navigator.serviceWorker.register('/sw.js').catch(function(e){console.warn('SW reg hiba', e);});
+            });
+          }
+        `}} />
       </body>
     </html>
   );
