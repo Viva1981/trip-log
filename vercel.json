@@ -5,7 +5,6 @@
   "outputDirectory": "apps/frontend/.next",
   "framework": "nextjs",
   "installCommand": "npm install",
-  "functions": {},
   "env": {
     "NEXT_PUBLIC_APP_NAME": "Utazás Napló V2"
   }
