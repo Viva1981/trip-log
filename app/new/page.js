@@ -6,6 +6,8 @@ import Input from "../components/Input";
 import Select from "../components/Select";
 import Card from "../components/Card";
 
+const API_BASE = process.env.NEXT_PUBLIC_APP_API_BASE || "";
+
 export default function NewTripPage() {
   const [form, setForm] = useState({
     title: "",
@@ -15,6 +17,7 @@ export default function NewTripPage() {
     visibility: "public",
     companions: "" // vesszővel elválasztott e-mail címek
   });
+  const [loading, setLoading] = useState(false);
 
   function onChange(e) {
     setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -32,27 +35,40 @@ export default function NewTripPage() {
     e.preventDefault();
     const err = validate();
     if (err) return alert(err);
+    if (!API_BASE) return alert("Hiányzik az API URL. Állítsd be: NEXT_PUBLIC_APP_API_BASE");
 
-    // Későbbi lépés: beküldés Apps Script API-ra.
-    // Most csak jelzünk és ürítünk.
-    alert("Az űrlap rendben. (Következő: bekötjük a backend API-t.)");
-    setForm({
-      title: "",
-      destination: "",
-      dateFrom: "",
-      dateTo: "",
-      visibility: "public",
-      companions: ""
-    });
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}?path=new-trip`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Hiba történt");
+      alert("Sikeres beküldés (skeleton). Válasz: " + JSON.stringify(data));
+      setForm({
+        title: "",
+        destination: "",
+        dateFrom: "",
+        dateTo: "",
+        visibility: "public",
+        companions: ""
+      });
+    } catch (e) {
+      alert("Hiba: " + e.message);
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
     <main className="space-y-4">
       <h1 className="text-2xl font-bold">Új utazás</h1>
-      <Card title="Utazás adatai" subtitle="Később: Google Places Autocomplete + meghívások">
+      <Card title="Utazás adatai" subtitle="Később: Google Places + Meghívások + Sheets/Drive mentés">
         <form onSubmit={onSubmit} className="space-y-4">
           <Input label="Utazás neve" name="title" required value={form.title} onChange={onChange} placeholder="Pl. Nyár a Balatonon" />
-          <Input label="Desztináció" name="destination" required value={form.destination} onChange={onChange} placeholder="Pl. Siófok (később: Google Places)" />
+          <Input label="Desztináció" name="destination" required value={form.destination} onChange={onChange} placeholder="Pl. Siófok" />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input label="Mettől" type="date" name="dateFrom" required value={form.dateFrom} onChange={onChange} />
@@ -83,8 +99,8 @@ export default function NewTripPage() {
           </label>
 
           <div className="flex gap-2">
-            <Button type="submit">Létrehozás</Button>
-            <Button type="button" variant="secondary" onClick={() => history.back()}>Mégse</Button>
+            <Button type="submit" disabled={loading}>{loading ? "Küldés..." : "Létrehozás"}</Button>
+            <Button type="button" variant="secondary" onClick={() => history.back()} disabled={loading}>Mégse</Button>
           </div>
         </form>
       </Card>
