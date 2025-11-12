@@ -15,15 +15,13 @@ export default function TripPage(){
   const [files,setFiles]=useState({ photos:[], docs:[], limits:{ maxPhoto:3, maxDoc:5, maxBytes:10*1024*1024 } });
   const [busy,setBusy]=useState(false);
 
+  const [preview, setPreview] = useState(null); // {src, name}
   const triedWithoutEmail = useRef(false);
 
-  // Csak akkor kérünk adatot, ha a session státusz nem "loading"
   useEffect(()=>{
     if(!params?.id) return;
-    if(status === "loading") return;
-    loadTrip().then(()=>{
-      loadFiles().catch(()=>{});
-    });
+    if(status==="loading") return;
+    loadTrip().then(()=>loadFiles());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[params?.id, status]);
 
@@ -31,16 +29,12 @@ export default function TripPage(){
     try{
       setError(null);
       const qs=new URLSearchParams({ id: params.id });
-      if(status === "authenticated" && session?.user?.email){
-        qs.append("viewerEmail", session.user.email);
-      }
+      if(status==="authenticated" && session?.user?.email) qs.append("viewerEmail", session.user.email);
       const res=await fetch(`/api/gs/trip?${qs.toString()}`, { cache:"no-store" });
       const data=await res.json();
       if(!res.ok || data?.error){
-        // Ha Unauthorized és még nem próbáltuk bejelentkezett emaillel, várunk a sessionre
-        if((data?.error||"").includes("Unauthorized") && status !== "authenticated" && !triedWithoutEmail.current){
-          triedWithoutEmail.current = true;
-          return; // hamarosan újrahívja az effect, amikor a status már "authenticated"
+        if((data?.error||"").includes("Unauthorized") && status!=="authenticated" && !triedWithoutEmail.current){
+          triedWithoutEmail.current = true; return;
         }
         throw new Error(data?.error || "Hiba történt");
       }
@@ -52,9 +46,7 @@ export default function TripPage(){
   async function loadFiles(){
     try{
       const qs=new URLSearchParams({ id: params.id });
-      if(status === "authenticated" && session?.user?.email){
-        qs.append("viewerEmail", session.user.email);
-      }
+      if(status==="authenticated" && session?.user?.email) qs.append("viewerEmail", session.user.email);
       const res=await fetch(`/api/gs/list-files?`+qs.toString(), { cache:"no-store" });
       const data=await res.json();
       if(!res.ok || data?.error) throw new Error(data?.error || "Hiba történt");
@@ -120,12 +112,41 @@ export default function TripPage(){
     }catch(e){ alert("Hiba: "+e.message); } finally{ setBusy(false); }
   }
 
+  async function openPhoto(file){
+    try{
+      const qs=new URLSearchParams({ path:'file64', tripId: params.id, fileId: file.id });
+      if(status==="authenticated" && session?.user?.email) qs.append("viewerEmail", session.user.email);
+      const res=await fetch(`/api/gs/file64?`+qs.toString(), { cache:"no-store" });
+      const data=await res.json();
+      if(!res.ok || data?.error) throw new Error(data?.error || "Előnézeti hiba");
+      setPreview({ src:`data:${data.mimeType};base64,${data.base64}`, name: data.name });
+    }catch(e){ alert("Hiba: "+e.message); }
+  }
+
+  async function downloadDoc(file){
+    try{
+      const qs=new URLSearchParams({ path:'file64', tripId: params.id, fileId: file.id });
+      if(status==="authenticated" && session?.user?.email) qs.append("viewerEmail", session.user.email);
+      const res=await fetch(`/api/gs/file64?`+qs.toString(), { cache:"no-store" });
+      const data=await res.json();
+      if(!res.ok || data?.error) throw new Error(data?.error || "Letöltési hiba");
+      const link=document.createElement("a");
+      link.href=`data:${data.mimeType};base64,${data.base64}`;
+      link.download=file.name || "dokumentum";
+      document.body.appendChild(link); link.click(); link.remove();
+    }catch(e){ alert("Hiba: "+e.message); }
+  }
+
   if(error) return <main className="p-4 text-red-600"><b>Hiba:</b> {error}</main>;
   if(!trip)  return <main className="p-4"><p>Töltés...</p></main>;
 
   const Row = ({item}) => (
     <li className="flex items-center justify-between">
-      <span className="truncate">{item.name}</span>
+      <button className="text-left underline hover:no-underline truncate" onClick={()=>{
+        if(item.kind==="photo") openPhoto(item); else downloadDoc(item);
+      }}>
+        {item.name}
+      </button>
       <span className="flex items-center gap-3 text-gray-500 text-sm">
         {item.kind === "photo" ? null : <span>{item.mimeType}</span>}
         <span>{fmtSize(item.size)}</span>
@@ -187,8 +208,15 @@ export default function TripPage(){
         )}
       </section>
 
+      {/* Lightbox */}
+      {preview && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center" onClick={()=>setPreview(null)}>
+          <img src={preview.src} alt={preview.name} className="max-h-[90vh] max-w-[90vw] shadow-2xl border" />
+        </div>
+      )}
+
       <div className="text-xs text-gray-400">ID: {trip.id}</div>
-      <div className="text-xs text-gray-400">Szabályok: törölni/módosítani csak a feltöltő tud. Privát fájlokat kizárólag a trip tulajdonosa látja.</div>
+      <div className="text-xs text-gray-400">Képek kattintással előnézetben nyílnak meg. Dokumentumok kattintással letöltődnek.</div>
     </main>
   );
 }
