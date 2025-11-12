@@ -11,22 +11,24 @@ export default function HomePage() {
 
   useEffect(() => {
     loadTrips();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, scope, session]);
 
   async function loadTrips() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      params.append("path", "trips");
       if (query) params.append("q", query);
       params.append("scope", scope);
       if (session?.user?.email) params.append("viewerEmail", session.user.email);
 
-      const res = await fetch(`/api/gs?${params.toString()}`);
+      // 🔧 PROXY HELYES ÚTVONAL
+      const res = await fetch(`/api/gs/trips?${params.toString()}`, { cache: "no-store" });
       const json = await res.json();
       setTrips(json.trips || []);
     } catch (err) {
       console.error(err);
+      setTrips([]);
     } finally {
       setLoading(false);
     }
@@ -61,13 +63,13 @@ export default function HomePage() {
 
       <div className="space-y-3">
         {trips.map((t) => (
-          <div key={t.id} className="border rounded p-3">
+          <a key={t.id} href={`/trips/${t.id}`} className="block border rounded p-3 hover:bg-gray-50">
             <div className="font-bold">{t.title}</div>
             <div className="text-sm text-gray-600">{t.destination}</div>
             <div className="text-xs text-gray-500">
               {t.dateFrom} → {t.dateTo} · {t.visibility}
             </div>
-          </div>
+          </a>
         ))}
         {!loading && trips.length === 0 && (
           <p className="text-gray-500">Nincs találat.</p>

@@ -3,20 +3,28 @@ import { authOptions } from "../api/auth/[...nextauth]/route";
 
 export const dynamic = "force-dynamic";
 
+function baseUrl() {
+  const a = process.env.NEXT_PUBLIC_SITE_URL;
+  const b = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "";
+  return a || b || "http://localhost:3000";
+}
+
 export default async function ProfilePage() {
   const session = await getServerSession(authOptions);
   const user = session?.user || null;
 
   async function getMyTrips() {
+    if (!user?.email) return [];
     const params = new URLSearchParams({
-      path: "trips",
       scope: "mine",
-      viewerEmail: user?.email || "",
+      viewerEmail: user.email,
     });
-    const res = await fetch(
-      `${process.env.NEXT_PUBLIC_APP_API_BASE}?${params.toString()}`,
-      { cache: "no-store" }
-    );
+
+    // 🔧 CSAK A SAJÁT PROXY-T HÍVJUK (nem közvetlen GAS)
+    const res = await fetch(`${baseUrl()}/api/gs/trips?${params.toString()}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
     const json = await res.json();
     return json.trips || [];
   }
@@ -53,7 +61,10 @@ export default async function ProfilePage() {
               <ul className="space-y-2">
                 {myTrips.map((t) => (
                   <li key={t.id} className="border rounded p-2">
-                    <b>{t.title}</b> · {t.destination} ({t.visibility})
+                    <a href={`/trips/${t.id}`} className="font-semibold underline">
+                      {t.title}
+                    </a>{" "}
+                    · {t.destination} ({t.visibility})
                   </li>
                 ))}
               </ul>

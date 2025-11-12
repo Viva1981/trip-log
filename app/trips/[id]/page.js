@@ -11,37 +11,44 @@ export default function TripPage() {
 
   useEffect(() => {
     if (params?.id) loadTrip();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params?.id, session]);
 
   async function loadTrip() {
     try {
-      const search = new URLSearchParams({
-        path: "trip",
-        id: params.id,
-      });
+      const search = new URLSearchParams({ id: params.id });
       if (session?.user?.email) search.append("viewerEmail", session.user.email);
-      const res = await fetch(`/api/gs?${search.toString()}`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Hiba történt");
-      setTrip(json);
+
+      // 🔧 PROXY HELYES ÚTVONAL
+      const res = await fetch(`/api/gs/trip?${search.toString()}`, { cache: "no-store" });
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data?.error || "Hiba történt");
+
+      // GAS néha {trip:{...}}, néha sima {...} – kezeljük mindkettőt:
+      const obj = data.trip ?? data;
+      if (!obj || !obj.id) throw new Error("Utazás nem található");
+      setTrip(obj);
     } catch (err) {
       setError(err.message);
     }
   }
 
-  if (error)
+  if (error) {
     return (
       <main className="p-4 text-red-600">
         <b>Hiba:</b> {error}
       </main>
     );
+  }
 
-  if (!trip)
+  if (!trip) {
     return (
       <main className="p-4">
         <p>Töltés...</p>
       </main>
     );
+  }
 
   return (
     <main className="space-y-4">
