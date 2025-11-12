@@ -1,15 +1,14 @@
 'use client';
 
 import { useState } from "react";
-import { useSession } from "next-auth/react";
 import Button from "../components/Button";
 import Input from "../components/Input";
 import Select from "../components/Select";
 import Card from "../components/Card";
 
 export default function NewTripPage() {
-  const { data: session } = useSession();
-  const ownerEmail = session?.user?.email || "";
+  // Auth még nincs bekötve → ownerEmail most üresen megy
+  const ownerEmail = "";
 
   const [form, setForm] = useState({
     title: "",
@@ -67,7 +66,7 @@ export default function NewTripPage() {
   return (
     <main className="space-y-4">
       <h1 className="text-2xl font-bold">Új utazás</h1>
-      <Card title="Utazás adatai" subtitle="A tulajdonos emailje automatikusan kerül mentésre (bejelentkezés alapján).">
+      <Card title="Utazás adatai" subtitle="Később: Auth után a tulajdonosi email is mentésre kerül.">
         <form onSubmit={onSubmit} className="space-y-4">
           <Input label="Utazás neve" name="title" required value={form.title} onChange={onChange} placeholder="Pl. Nyár a Balatonon" />
           <Input label="Desztináció" name="destination" required value={form.destination} onChange={onChange} placeholder="Pl. Siófok" />
@@ -101,7 +100,7 @@ export default function NewTripPage() {
           </label>
 
           <div className="text-sm text-gray-500">
-            Tulajdonos (automatikus): <b>{ownerEmail || "— nincs bejelentkezve"}</b>
+            Tulajdonos (auth nélkül): <b>—</b>
           </div>
 
           <div className="flex gap-2">
