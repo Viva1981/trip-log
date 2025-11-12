@@ -2,6 +2,13 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 
+function fmt(d) {
+  if (!d) return "—";
+  // ISO str első 10 karaktere: YYYY-MM-DD
+  if (typeof d === "string" && d.length >= 10) return d.slice(0,10);
+  try { return new Date(d).toISOString().slice(0,10); } catch { return String(d); }
+}
+
 export default function HomePage() {
   const { data: session } = useSession();
   const [trips, setTrips] = useState([]);
@@ -66,10 +73,8 @@ export default function HomePage() {
             <div className="font-bold">{t.title}</div>
             <div className="text-sm text-gray-600">{t.destination}</div>
             <div className="text-xs text-gray-500">
-              {t.dateFrom} → {t.dateTo} · {t.visibility}
-              { (t.ownerName || t.ownerEmail) && (
-                <> · <span>Létrehozó: {t.ownerName || t.ownerEmail}</span></>
-              )}
+              {fmt(t.dateFrom)} → {fmt(t.dateTo)} · {t.visibility}
+              {(t.ownerName || t.ownerEmail) && <> · Létrehozó: {t.ownerName || t.ownerEmail}</>}
             </div>
           </a>
         ))}

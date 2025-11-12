@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import Button from "../components/Button";
 import Input from "../components/Input";
 import Select from "../components/Select";
@@ -9,6 +10,8 @@ import Card from "../components/Card";
 
 export default function NewTripPage() {
   const { data: session, status } = useSession();
+  const router = useRouter();
+
   const ownerEmail = session?.user?.email || "";
   const ownerName  = session?.user?.name  || "";
 
@@ -48,9 +51,11 @@ export default function NewTripPage() {
         body: JSON.stringify(payload)
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || data?.error) throw new Error(data?.error || "Hiba történt");
-      alert("Sikeres beküldés (mentés). Válasz: " + JSON.stringify(data));
-      setForm({ title: "", destination: "", dateFrom: "", dateTo: "", visibility: "public", companions: "" });
+      if (!res.ok || data?.error || !data?.tripId) {
+        throw new Error(data?.error || "Hiba történt");
+      }
+      // ➜ Siker: irány az utazás oldala
+      router.push(`/trips/${data.tripId}`);
     } catch (e) {
       alert("Hiba: " + e.message);
     } finally {

@@ -3,6 +3,12 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 
+function fmt(d) {
+  if (!d) return "—";
+  if (typeof d === "string" && d.length >= 10) return d.slice(0,10);
+  try { return new Date(d).toISOString().slice(0,10); } catch { return String(d); }
+}
+
 export default function TripPage() {
   const { data: session } = useSession();
   const params = useParams();
@@ -35,19 +41,15 @@ export default function TripPage() {
   return (
     <main className="space-y-4">
       <h1 className="text-2xl font-bold">{trip.title}</h1>
-
       <div className="grid gap-2">
         <div className="border rounded p-2"><div className="text-sm text-gray-500">Desztináció</div><div>{trip.destination}</div></div>
         <div className="border rounded p-2"><div className="text-sm text-gray-500">Láthatóság</div><div>{trip.visibility}</div></div>
-        <div className="border rounded p-2"><div className="text-sm text-gray-500">Mettől</div><div>{trip.dateFrom}</div></div>
-        <div className="border rounded p-2"><div className="text-sm text-gray-500">Meddig</div><div>{trip.dateTo}</div></div>
+        <div className="border rounded p-2"><div className="text-sm text-gray-500">Mettől</div><div>{fmt(trip.dateFrom)}</div></div>
+        <div className="border rounded p-2"><div className="text-sm text-gray-500">Meddig</div><div>{fmt(trip.dateTo)}</div></div>
         <div className="border rounded p-2"><div className="text-sm text-gray-500">Útitársak</div><div>{trip.companions || "—"}</div></div>
         <div className="border rounded p-2"><div className="text-sm text-gray-500">Létrehozó</div><div>{trip.ownerName || trip.ownerEmail || "—"}</div></div>
       </div>
-
       <div className="text-xs text-gray-400">ID: {trip.id}</div>
-      <div className="text-xs text-gray-400">Megjegyzés: max 3 Photo, max 5 Doc; méretlimit: 10 MB / fájl.</div>
     </main>
   );
 }
-
