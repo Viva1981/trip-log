@@ -11,6 +11,7 @@ export default function TripPage(){
   const params = useParams();
 
   const [trip,setTrip]=useState(null);
+  theState:
   const [error,setError]=useState(null);
   const [files,setFiles]=useState({ photos:[], docs:[], limits:{ maxPhoto:3, maxDoc:5, maxBytes:10*1024*1024 } });
   const [busy,setBusy]=useState(false);
@@ -29,7 +30,7 @@ export default function TripPage(){
   },[params?.id, status]);
 
   useEffect(()=>{
-    // fotókhoz thumbok betöltése, ha még nincs
+    // fotókhoz thumbok betöltése
     (async ()=>{
       if(!files?.photos?.length) return;
       for(const p of files.photos){
@@ -155,19 +156,10 @@ export default function TripPage(){
     catch(e){ alert("Hiba: "+e.message); }
   }
 
-  async function downloadFile(file){
-    try{
-      const p = await fetchFile64(file);
-      const link=document.createElement("a");
-      link.href=p.src; link.download=file.name || "file";
-      document.body.appendChild(link); link.click(); link.remove();
-    }catch(e){ alert("Hiba: "+e.message); }
-  }
-
   if(error) return <main className="p-4 text-red-600"><b>Hiba:</b> {error}</main>;
   if(!trip)  return <main className="p-4"><p>Töltés...</p></main>;
 
-  // Fotó kártya (Booking-szerű)
+  // Fotó kártya
   const PhotoCard = ({p}) => (
     <div className="rounded border overflow-hidden bg-white shadow-sm">
       <div className="aspect-[4/3] bg-gray-100 flex items-center justify-center cursor-pointer" onClick={()=>openPreview(p)}>
@@ -195,26 +187,36 @@ export default function TripPage(){
     </div>
   );
 
-  const DocRow = ({item}) => (
-    <li className="flex items-center justify-between">
-      <button className="text-left underline hover:no-underline truncate" onClick={()=>openPreview(item)}>
-        {item.name}
+  // Doksi kártya – ikon a MIME szerint, katt = előnézet (nincs letöltés gomb)
+  function docIcon(mime){
+    if((mime||'').startsWith('application/pdf')) return '📄';
+    if((mime||'').startsWith('video/')) return '🎞️';
+    if((mime||'').startsWith('audio/')) return '🎧';
+    if((mime||'').startsWith('text/')) return '📝';
+    return '📎';
+  }
+  const DocCard = ({d}) => (
+    <div className="rounded border overflow-hidden bg-white shadow-sm">
+      <button className="aspect-[4/3] w-full bg-gray-50 flex items-center justify-center text-5xl cursor-pointer"
+              title="Megnyitás" onClick={()=>openPreview(d)}>
+        {docIcon(d.mimeType)}
       </button>
-      <span className="flex items-center gap-3 text-gray-500 text-sm">
-        <span>{item.mimeType}</span>
-        <span>{fmtSize(item.size)}</span>
-        <span className="text-xs px-2 py-0.5 border rounded">{item.visibility}</span>
-        <a className="text-xs underline" onClick={(e)=>{e.preventDefault(); downloadFile(item);}}>Letöltés</a>
-        {item.canManage && (
-          <>
-            <button className="px-2 py-0.5 border rounded" onClick={()=>onToggle(item)} disabled={busy}>
-              {item.visibility === "public" ? "Priváttá" : "Publikussá"}
+      <div className="p-2 text-sm">
+        <div className="truncate" title={d.name}>{d.name}</div>
+        <div className="flex justify-between items-center mt-1 text-gray-500">
+          <span>{fmtSize(d.size)}</span>
+          <span className="text-xs px-2 py-0.5 border rounded">{d.visibility}</span>
+        </div>
+        {d.canManage && (
+          <div className="flex gap-2 mt-2">
+            <button className="px-2 py-0.5 border rounded" onClick={()=>onToggle(d)} disabled={busy}>
+              {d.visibility === "public" ? "Priváttá" : "Publikussá"}
             </button>
-            <button className="px-2 py-0.5 border rounded" onClick={()=>onDelete(item.id)} disabled={busy}>🗑️</button>
-          </>
+            <button className="px-2 py-0.5 border rounded" onClick={()=>onDelete(d.id)} disabled={busy}>🗑️</button>
+          </div>
         )}
-      </span>
-    </li>
+      </div>
+    </div>
   );
 
   // Előnézet MIME szerint
@@ -236,8 +238,8 @@ export default function TripPage(){
     }
     return (
       <div className="bg-white p-6 rounded shadow max-w-[80vw]">
-        <p className="mb-4">Ezt a fájlt a böngésző nem tudja megjeleníteni.</p>
-        <button className="px-3 py-1 border rounded" onClick={()=>downloadFile({name, id:"__nope"})}>Letöltés</button>
+        <p className="mb-2">Ezt a fájlt a böngésző nem tudja megjeleníteni.</p>
+        <p className="text-sm text-gray-500">Zárd be ezt az ablakot.</p>
       </div>
     );
   }
@@ -255,7 +257,7 @@ export default function TripPage(){
         <div className="border rounded p-2"><div className="text-sm text-gray-500">Létrehozó</div><div>{trip.ownerName || trip.ownerEmail || "—"}</div></div>
       </div>
 
-      {/* Fotók – rács kártyák, Booking vibe */}
+      {/* Fotók – rács */}
       <section className="border rounded p-3 space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold">Fotók</h2>
@@ -271,7 +273,7 @@ export default function TripPage(){
         )}
       </section>
 
-      {/* Dokumentumok */}
+      {/* Dokumentumok – rács (nincs letöltés link) */}
       <section className="border rounded p-3 space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold">Dokumentumok</h2>
@@ -279,9 +281,9 @@ export default function TripPage(){
         {files.docs.length === 0 ? (
           <div className="text-gray-500 text-sm">Még nincs dokumentum.</div>
         ) : (
-          <ul className="space-y-1 text-sm">
-            {files.docs.map(d => <DocRow key={d.id} item={d} />)}
-          </ul>
+          <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+            {files.docs.map(d => <DocCard key={d.id} d={d} />)}
+          </div>
         )}
         <div className="mt-2">
           <input type="file" onChange={(e)=>onUpload("doc", e)} disabled={busy} />
@@ -296,7 +298,6 @@ export default function TripPage(){
       )}
 
       <div className="text-xs text-gray-400">ID: {trip.id}</div>
-      <div className="text-xs text-gray-400">Képek rácsban, doksik listában. Kattintás = előnézet, „Letöltés” = letöltés.</div>
     </main>
   );
 }
