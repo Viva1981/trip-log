@@ -1,86 +1,65 @@
 "use client";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 
-function fmt(d) {
-  if (!d) return "—";
-  // ISO str első 10 karaktere: YYYY-MM-DD
-  if (typeof d === "string" && d.length >= 10) return d.slice(0,10);
-  try { return new Date(d).toISOString().slice(0,10); } catch { return String(d); }
-}
+function fmt(d){ if(!d) return "—"; if(typeof d==="string"&&d.length>=10) return d.slice(0,10); try{ return new Date(d).toISOString().slice(0,10);}catch{ return String(d);} }
 
-export default function HomePage() {
+export default function Home(){
   const { data: session } = useSession();
-  const [trips, setTrips] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [query, setQuery] = useState("");
-  const [scope, setScope] = useState("public");
+  const [q,setQ]=useState("");
+  const [scope,setScope]=useState("public"); // public | mine | all
+  const [trips,setTrips]=useState([]);
 
-  useEffect(() => {
-    loadTrips();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, scope, session]);
-
-  async function loadTrips() {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (query) params.append("q", query);
-      params.append("scope", scope);
-      if (session?.user?.email) params.append("viewerEmail", session.user.email);
-
-      const res = await fetch(`/api/gs/trips?${params.toString()}`, { cache: "no-store" });
-      const json = await res.json();
-      setTrips(json.trips || []);
-    } catch (err) {
-      console.error(err);
-      setTrips([]);
-    } finally {
-      setLoading(false);
-    }
+  async function load(){
+    const params=new URLSearchParams({ path:"trips", q, scope });
+    if(scope!=="public" && session?.user?.email) params.append("viewerEmail", session.user.email);
+    const res=await fetch("/api/gs/trips?"+params.toString(), { cache:"no-store" });
+    const data=await res.json();
+    setTrips(data?.trips||[]);
   }
+
+  useEffect(()=>{ load(); }, [scope]); // első betöltés + scope váltás
+  // kis kereső késleltetés
+  useEffect(()=>{ const t=setTimeout(load, 300); return ()=>clearTimeout(t); }, [q]);
 
   return (
     <main className="space-y-6">
       <h1 className="text-2xl font-bold">Üdv! Stabil alap kész.</h1>
-      <p>Auth, PWA, űrlap → Sheets, listanézet és részletek.</p>
+      <p className="text-gray-600">Auth, PWA, űrlap → Sheets, listanézet és részletek.</p>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         <input
+          className="border rounded px-3 py-2 w-[320px]"
           placeholder="Keresés (név / desztináció)"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          className="border rounded px-2 py-1"
+          value={q}
+          onChange={e=>setQ(e.target.value)}
         />
-        {session && (
-          <select
-            value={scope}
-            onChange={(e) => setScope(e.target.value)}
-            className="border rounded px-2 py-1"
-          >
-            <option value="public">Publikus utak</option>
-            <option value="mine">Csak az én útjaim</option>
-            <option value="all">Összes (admin)</option>
-          </select>
-        )}
+        <select className="border rounded px-2 py-2"
+          value={scope} onChange={e=>setScope(e.target.value)}>
+          <option value="public">Publikus utak</option>
+          <option value="mine">Csak az én útjaim</option>
+          <option value="all">Összes</option>
+        </select>
+
+        {/* ÚJ UTAZÁS gomb a jobb oldalon */}
+        <Link href="/new" className="ml-4 inline-block px-3 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">
+          Új utazás
+        </Link>
       </div>
 
-      {loading && <p>Töltés...</p>}
-
       <div className="space-y-3">
-        {trips.map((t) => (
+        {trips.map(t=>(
           <a key={t.id} href={`/trips/${t.id}`} className="block border rounded p-3 hover:bg-gray-50">
-            <div className="font-bold">{t.title}</div>
-            <div className="text-sm text-gray-600">{t.destination}</div>
-            <div className="text-xs text-gray-500">
-              {fmt(t.dateFrom)} → {fmt(t.dateTo)} · {t.visibility}
-              {(t.ownerName || t.ownerEmail) && <> · Létrehozó: {t.ownerName || t.ownerEmail}</>}
+            <div className="text-blue-700 font-semibold">{t.title}</div>
+            <div className="text-sm text-gray-600">
+              {t.destination || "—"}
+            </div>
+            <div className="text-xs text-gray-500 mt-1">
+              {fmt(t.dateFrom)} → {fmt(t.dateTo)} · {t.visibility} · Létrehozó: {t.ownerName || t.ownerEmail || "—"}
             </div>
           </a>
         ))}
-        {!loading && trips.length === 0 && (
-          <p className="text-gray-500">Nincs találat.</p>
-        )}
       </div>
     </main>
   );
