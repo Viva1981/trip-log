@@ -1,6 +1,11 @@
+function baseUrl() {
+  const a = process.env.NEXT_PUBLIC_SITE_URL;
+  const b = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "";
+  return a || b || "http://localhost:3000";
+}
+
 async function getTrip(id) {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_SITE_URL || ""}/api/gs/trip?id=${encodeURIComponent(id)}`, { cache: "no-store" });
-  // Fallback: relatív hívás, ha SITE_URL nincs beállítva (Vercelen úgyis van)
+  const res = await fetch(`${baseUrl()}/api/gs/trip?id=${encodeURIComponent(id)}`, { cache: "no-store" });
   if (!res.ok) return null;
   const data = await res.json();
   return data.trip || null;

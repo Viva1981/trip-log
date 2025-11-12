@@ -1,5 +1,12 @@
+function baseUrl() {
+  const a = process.env.NEXT_PUBLIC_SITE_URL;
+  const b = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "";
+  return a || b || "http://localhost:3000";
+}
+
 async function fetchTrips() {
-  const res = await fetch(`/api/gs/trips?limit=20`, { cache: "no-store" });
+  const url = `${baseUrl()}/api/gs/trips?limit=20`;
+  const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) return [];
   const data = await res.json();
   return data.items || [];
@@ -11,7 +18,7 @@ export default async function Home() {
   return (
     <main className="space-y-4">
       <h1 className="text-2xl font-bold">Üdv! Stabil alap kész.</h1>
-      <p className="text-gray-700">Egyre többet tud a rendszer: Auth, PWA, űrlap → Sheets, utazás megnyitása.</p>
+      <p className="text-gray-700">Auth, PWA, űrlap → Sheets, listanézet és részletek.</p>
 
       <div className="flex items-center gap-2">
         <a href="/new" className="underline">Új utazás</a>
