@@ -22,7 +22,6 @@ export default function HomePage() {
       params.append("scope", scope);
       if (session?.user?.email) params.append("viewerEmail", session.user.email);
 
-      // 🔧 PROXY HELYES ÚTVONAL
       const res = await fetch(`/api/gs/trips?${params.toString()}`, { cache: "no-store" });
       const json = await res.json();
       setTrips(json.trips || []);
@@ -68,6 +67,9 @@ export default function HomePage() {
             <div className="text-sm text-gray-600">{t.destination}</div>
             <div className="text-xs text-gray-500">
               {t.dateFrom} → {t.dateTo} · {t.visibility}
+              { (t.ownerName || t.ownerEmail) && (
+                <> · <span>Létrehozó: {t.ownerName || t.ownerEmail}</span></>
+              )}
             </div>
           </a>
         ))}

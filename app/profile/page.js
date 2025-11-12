@@ -15,15 +15,8 @@ export default async function ProfilePage() {
 
   async function getMyTrips() {
     if (!user?.email) return [];
-    const params = new URLSearchParams({
-      scope: "mine",
-      viewerEmail: user.email,
-    });
-
-    // 🔧 CSAK A SAJÁT PROXY-T HÍVJUK (nem közvetlen GAS)
-    const res = await fetch(`${baseUrl()}/api/gs/trips?${params.toString()}`, {
-      cache: "no-store",
-    });
+    const params = new URLSearchParams({ scope: "mine", viewerEmail: user.email });
+    const res = await fetch(`${baseUrl()}/api/gs/trips?${params.toString()}`, { cache: "no-store" });
     if (!res.ok) return [];
     const json = await res.json();
     return json.trips || [];
@@ -35,23 +28,12 @@ export default async function ProfilePage() {
     <main className="space-y-6">
       <h1 className="text-2xl font-bold">Profil</h1>
 
-      {!user && (
-        <p className="text-gray-600">
-          Nem vagy bejelentkezve. A fejléc jobb oldalán kattints a{" "}
-          <b>Bejelentkezés</b> gombra.
-        </p>
-      )}
+      {!user && <p className="text-gray-600">Nem vagy bejelentkezve. A fejléc jobb oldalán kattints a <b>Bejelentkezés</b> gombra.</p>}
 
       {user && (
         <div className="space-y-4">
-          <div className="border rounded p-3">
-            <div className="text-sm text-gray-500">Név</div>
-            <div>{user.name}</div>
-          </div>
-          <div className="border rounded p-3">
-            <div className="text-sm text-gray-500">Email</div>
-            <div>{user.email}</div>
-          </div>
+          <div className="border rounded p-3"><div className="text-sm text-gray-500">Név</div><div>{user.name}</div></div>
+          <div className="border rounded p-3"><div className="text-sm text-gray-500">Email</div><div>{user.email}</div></div>
 
           <div>
             <h2 className="font-semibold mt-6 mb-2">Saját utazásaim</h2>
@@ -61,10 +43,8 @@ export default async function ProfilePage() {
               <ul className="space-y-2">
                 {myTrips.map((t) => (
                   <li key={t.id} className="border rounded p-2">
-                    <a href={`/trips/${t.id}`} className="font-semibold underline">
-                      {t.title}
-                    </a>{" "}
-                    · {t.destination} ({t.visibility})
+                    <a href={`/trips/${t.id}`} className="font-semibold underline">{t.title}</a>{" "}
+                    · {t.destination} ({t.visibility}) · Létrehozó: {t.ownerName || t.ownerEmail || "—"}
                   </li>
                 ))}
               </ul>
