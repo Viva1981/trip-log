@@ -1,13 +1,13 @@
 "use client";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useSession } from "next-auth/react";
 
 function fmt(d){ if(!d) return "—"; if(typeof d==="string" && d.length>=10) return d.slice(0,10); try{ return new Date(d).toISOString().slice(0,10); }catch{ return String(d);} }
 function fmtSize(n){ if(n==null) return "—"; if(n<1024) return `${n} B`; if(n<1024*1024) return `${(n/1024).toFixed(1)} KB`; return `${(n/1024/1024).toFixed(2)} MB`; }
 
 export default function TripPage(){
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const params = useParams();
 
   const [trip,setTrip]=useState(null);
@@ -15,15 +15,35 @@ export default function TripPage(){
   const [files,setFiles]=useState({ photos:[], docs:[], limits:{ maxPhoto:3, maxDoc:5, maxBytes:10*1024*1024 } });
   const [busy,setBusy]=useState(false);
 
-  useEffect(()=>{ if(params?.id){ loadTrip(); loadFiles(); } },[params?.id, session]);
+  const triedWithoutEmail = useRef(false);
+
+  // Csak akkor kérünk adatot, ha a session státusz nem "loading"
+  useEffect(()=>{
+    if(!params?.id) return;
+    if(status === "loading") return;
+    loadTrip().then(()=>{
+      loadFiles().catch(()=>{});
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[params?.id, status]);
 
   async function loadTrip(){
     try{
+      setError(null);
       const qs=new URLSearchParams({ id: params.id });
-      if(session?.user?.email) qs.append("viewerEmail", session.user.email);
+      if(status === "authenticated" && session?.user?.email){
+        qs.append("viewerEmail", session.user.email);
+      }
       const res=await fetch(`/api/gs/trip?${qs.toString()}`, { cache:"no-store" });
       const data=await res.json();
-      if(!res.ok || data?.error) throw new Error(data?.error || "Hiba történt");
+      if(!res.ok || data?.error){
+        // Ha Unauthorized és még nem próbáltuk bejelentkezett emaillel, várunk a sessionre
+        if((data?.error||"").includes("Unauthorized") && status !== "authenticated" && !triedWithoutEmail.current){
+          triedWithoutEmail.current = true;
+          return; // hamarosan újrahívja az effect, amikor a status már "authenticated"
+        }
+        throw new Error(data?.error || "Hiba történt");
+      }
       const obj=data.trip ?? data; if(!obj?.id) throw new Error("Utazás nem található");
       setTrip(obj);
     }catch(e){ setError(e.message); }
@@ -32,7 +52,9 @@ export default function TripPage(){
   async function loadFiles(){
     try{
       const qs=new URLSearchParams({ id: params.id });
-      if(session?.user?.email) qs.append("viewerEmail", session.user.email);
+      if(status === "authenticated" && session?.user?.email){
+        qs.append("viewerEmail", session.user.email);
+      }
       const res=await fetch(`/api/gs/list-files?`+qs.toString(), { cache:"no-store" });
       const data=await res.json();
       if(!res.ok || data?.error) throw new Error(data?.error || "Hiba történt");
@@ -101,7 +123,7 @@ export default function TripPage(){
   if(error) return <main className="p-4 text-red-600"><b>Hiba:</b> {error}</main>;
   if(!trip)  return <main className="p-4"><p>Töltés...</p></main>;
 
-  const Row = ({item, right}) => (
+  const Row = ({item}) => (
     <li className="flex items-center justify-between">
       <span className="truncate">{item.name}</span>
       <span className="flex items-center gap-3 text-gray-500 text-sm">
@@ -116,7 +138,6 @@ export default function TripPage(){
             <button className="px-2 py-0.5 border rounded" onClick={()=>onDelete(item.id)} disabled={busy}>🗑️</button>
           </>
         )}
-        {right}
       </span>
     </li>
   );
