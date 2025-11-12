@@ -15,8 +15,10 @@ export default function TripPage(){
   const [files,setFiles]=useState({ photos:[], docs:[], limits:{ maxPhoto:3, maxDoc:5, maxBytes:10*1024*1024 } });
   const [busy,setBusy]=useState(false);
 
-  // előnézet állapota (bármilyen MIME): {src, name, mime}
+  // előnézet (bármilyen MIME): {src, name, mime}
   const [preview, setPreview] = useState(null);
+  // thumbnail cache: { [fileId]: dataUrl }
+  const [thumbs, setThumbs] = useState({});
   const triedWithoutEmail = useRef(false);
 
   useEffect(()=>{
@@ -25,6 +27,22 @@ export default function TripPage(){
     loadTrip().then(()=>loadFiles());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[params?.id, status]);
+
+  useEffect(()=>{
+    // fotókhoz thumbok betöltése, ha még nincs
+    (async ()=>{
+      if(!files?.photos?.length) return;
+      for(const p of files.photos){
+        if(!thumbs[p.id]) {
+          try{
+            const t = await fetchThumb64(p);
+            setThumbs(prev => ({ ...prev, [p.id]: t.src }));
+          }catch(_){ /* ignore */ }
+        }
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[files.photos]);
 
   async function loadTrip(){
     try{
@@ -96,6 +114,7 @@ export default function TripPage(){
       const data=await res.json();
       if(!res.ok || data?.error) throw new Error(data?.error || "Törlési hiba");
       await loadFiles();
+      setThumbs(prev => { const cp={...prev}; delete cp[fileId]; return cp; });
     }catch(e){ alert("Hiba: "+e.message); } finally{ setBusy(false); }
   }
 
@@ -122,19 +141,25 @@ export default function TripPage(){
     return { src:`data:${data.mimeType};base64,${data.base64}`, name:data.name, mime:data.mimeType };
   }
 
+  async function fetchThumb64(file){
+    const qs=new URLSearchParams({ path:'thumb64', tripId: params.id, fileId: file.id });
+    if(status==="authenticated" && session?.user?.email) qs.append("viewerEmail", session.user.email);
+    const res=await fetch(`/api/gs/thumb64?`+qs.toString(), { cache:"no-store" });
+    const data=await res.json();
+    if(!res.ok || data?.error) throw new Error(data?.error || "Thumb hiba");
+    return { src:`data:${data.mimeType};base64,${data.base64}` };
+  }
+
   async function openPreview(file){
-    try{
-      const p = await fetchFile64(file);
-      setPreview(p);
-    }catch(e){ alert("Hiba: "+e.message); }
+    try{ const p = await fetchFile64(file); setPreview(p); }
+    catch(e){ alert("Hiba: "+e.message); }
   }
 
   async function downloadFile(file){
     try{
       const p = await fetchFile64(file);
       const link=document.createElement("a");
-      link.href=p.src;
-      link.download=file.name || "file";
+      link.href=p.src; link.download=file.name || "file";
       document.body.appendChild(link); link.click(); link.remove();
     }catch(e){ alert("Hiba: "+e.message); }
   }
@@ -142,13 +167,41 @@ export default function TripPage(){
   if(error) return <main className="p-4 text-red-600"><b>Hiba:</b> {error}</main>;
   if(!trip)  return <main className="p-4"><p>Töltés...</p></main>;
 
-  const Row = ({item}) => (
+  // Fotó kártya (Booking-szerű)
+  const PhotoCard = ({p}) => (
+    <div className="rounded border overflow-hidden bg-white shadow-sm">
+      <div className="aspect-[4/3] bg-gray-100 flex items-center justify-center cursor-pointer" onClick={()=>openPreview(p)}>
+        {thumbs[p.id] ? (
+          <img src={thumbs[p.id]} alt={p.name} className="object-cover w-full h-full" />
+        ) : (
+          <div className="text-gray-400 text-sm">töltés…</div>
+        )}
+      </div>
+      <div className="p-2 text-sm">
+        <div className="truncate" title={p.name}>{p.name}</div>
+        <div className="flex justify-between items-center mt-1 text-gray-500">
+          <span>{fmtSize(p.size)}</span>
+          <span className="text-xs px-2 py-0.5 border rounded">{p.visibility}</span>
+        </div>
+        {p.canManage && (
+          <div className="flex gap-2 mt-2">
+            <button className="px-2 py-0.5 border rounded" onClick={()=>onToggle(p)} disabled={busy}>
+              {p.visibility === "public" ? "Priváttá" : "Publikussá"}
+            </button>
+            <button className="px-2 py-0.5 border rounded" onClick={()=>onDelete(p.id)} disabled={busy}>🗑️</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const DocRow = ({item}) => (
     <li className="flex items-center justify-between">
       <button className="text-left underline hover:no-underline truncate" onClick={()=>openPreview(item)}>
         {item.name}
       </button>
       <span className="flex items-center gap-3 text-gray-500 text-sm">
-        {item.kind === "photo" ? null : <span>{item.mimeType}</span>}
+        <span>{item.mimeType}</span>
         <span>{fmtSize(item.size)}</span>
         <span className="text-xs px-2 py-0.5 border rounded">{item.visibility}</span>
         <a className="text-xs underline" onClick={(e)=>{e.preventDefault(); downloadFile(item);}}>Letöltés</a>
@@ -164,7 +217,7 @@ export default function TripPage(){
     </li>
   );
 
-  // Előnézet tartalom MIME szerint
+  // Előnézet MIME szerint
   function PreviewContent({src, mime, name}){
     if(mime?.startsWith("image/")){
       return <img src={src} alt={name} className="max-h-[90vh] max-w-[90vw] shadow-2xl border" />;
@@ -181,7 +234,6 @@ export default function TripPage(){
     if(mime?.startsWith("text/")){
       return <iframe src={src} title={name} className="w-[90vw] h-[90vh] bg-white" />;
     }
-    // ismeretlen típus: tájékoztatás + letöltés
     return (
       <div className="bg-white p-6 rounded shadow max-w-[80vw]">
         <p className="mb-4">Ezt a fájlt a böngésző nem tudja megjeleníteni.</p>
@@ -203,7 +255,7 @@ export default function TripPage(){
         <div className="border rounded p-2"><div className="text-sm text-gray-500">Létrehozó</div><div>{trip.ownerName || trip.ownerEmail || "—"}</div></div>
       </div>
 
-      {/* Fotók */}
+      {/* Fotók – rács kártyák, Booking vibe */}
       <section className="border rounded p-3 space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold">Fotók</h2>
@@ -213,9 +265,9 @@ export default function TripPage(){
         {files.photos.length === 0 ? (
           <div className="text-gray-500 text-sm">Még nincs fotó.</div>
         ) : (
-          <ul className="space-y-1 text-sm">
-            {files.photos.map(p => <Row key={p.id} item={p} />)}
-          </ul>
+          <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+            {files.photos.map(p => <PhotoCard key={p.id} p={p} />)}
+          </div>
         )}
       </section>
 
@@ -223,16 +275,17 @@ export default function TripPage(){
       <section className="border rounded p-3 space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold">Dokumentumok</h2>
-          <input type="file" onChange={(e)=>onUpload("doc", e)} disabled={busy} />
         </div>
-        <div className="text-sm text-gray-500">Limit: {files?.limits?.maxDoc ?? 5} db · jelenleg: {files.docs.length}</div>
         {files.docs.length === 0 ? (
           <div className="text-gray-500 text-sm">Még nincs dokumentum.</div>
         ) : (
           <ul className="space-y-1 text-sm">
-            {files.docs.map(d => <Row key={d.id} item={d} />)}
+            {files.docs.map(d => <DocRow key={d.id} item={d} />)}
           </ul>
         )}
+        <div className="mt-2">
+          <input type="file" onChange={(e)=>onUpload("doc", e)} disabled={busy} />
+        </div>
       </section>
 
       {/* Lightbox / előnézet */}
@@ -243,7 +296,7 @@ export default function TripPage(){
       )}
 
       <div className="text-xs text-gray-400">ID: {trip.id}</div>
-      <div className="text-xs text-gray-400">Képek és doksik előnézete kattintásra. Letöltéshez használd a „Letöltés” linket.</div>
+      <div className="text-xs text-gray-400">Képek rácsban, doksik listában. Kattintás = előnézet, „Letöltés” = letöltés.</div>
     </main>
   );
 }
