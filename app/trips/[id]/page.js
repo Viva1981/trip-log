@@ -11,7 +11,6 @@ export default function TripPage(){
   const params = useParams();
 
   const [trip,setTrip]=useState(null);
-  theState:
   const [error,setError]=useState(null);
   const [files,setFiles]=useState({ photos:[], docs:[], limits:{ maxPhoto:3, maxDoc:5, maxBytes:10*1024*1024 } });
   const [busy,setBusy]=useState(false);
@@ -187,7 +186,7 @@ export default function TripPage(){
     </div>
   );
 
-  // Doksi kártya – ikon a MIME szerint, katt = előnézet (nincs letöltés gomb)
+  // Doksi kártya
   function docIcon(mime){
     if((mime||'').startsWith('application/pdf')) return '📄';
     if((mime||'').startsWith('video/')) return '🎞️';
