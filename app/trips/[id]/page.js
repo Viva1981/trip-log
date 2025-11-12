@@ -15,7 +15,8 @@ export default function TripPage(){
   const [files,setFiles]=useState({ photos:[], docs:[], limits:{ maxPhoto:3, maxDoc:5, maxBytes:10*1024*1024 } });
   const [busy,setBusy]=useState(false);
 
-  const [preview, setPreview] = useState(null); // {src, name}
+  // előnézet állapota (bármilyen MIME): {src, name, mime}
+  const [preview, setPreview] = useState(null);
   const triedWithoutEmail = useRef(false);
 
   useEffect(()=>{
@@ -112,27 +113,28 @@ export default function TripPage(){
     }catch(e){ alert("Hiba: "+e.message); } finally{ setBusy(false); }
   }
 
-  async function openPhoto(file){
+  async function fetchFile64(file){
+    const qs=new URLSearchParams({ path:'file64', tripId: params.id, fileId: file.id });
+    if(status==="authenticated" && session?.user?.email) qs.append("viewerEmail", session.user.email);
+    const res=await fetch(`/api/gs/file64?`+qs.toString(), { cache:"no-store" });
+    const data=await res.json();
+    if(!res.ok || data?.error) throw new Error(data?.error || "Előnézeti hiba");
+    return { src:`data:${data.mimeType};base64,${data.base64}`, name:data.name, mime:data.mimeType };
+  }
+
+  async function openPreview(file){
     try{
-      const qs=new URLSearchParams({ path:'file64', tripId: params.id, fileId: file.id });
-      if(status==="authenticated" && session?.user?.email) qs.append("viewerEmail", session.user.email);
-      const res=await fetch(`/api/gs/file64?`+qs.toString(), { cache:"no-store" });
-      const data=await res.json();
-      if(!res.ok || data?.error) throw new Error(data?.error || "Előnézeti hiba");
-      setPreview({ src:`data:${data.mimeType};base64,${data.base64}`, name: data.name });
+      const p = await fetchFile64(file);
+      setPreview(p);
     }catch(e){ alert("Hiba: "+e.message); }
   }
 
-  async function downloadDoc(file){
+  async function downloadFile(file){
     try{
-      const qs=new URLSearchParams({ path:'file64', tripId: params.id, fileId: file.id });
-      if(status==="authenticated" && session?.user?.email) qs.append("viewerEmail", session.user.email);
-      const res=await fetch(`/api/gs/file64?`+qs.toString(), { cache:"no-store" });
-      const data=await res.json();
-      if(!res.ok || data?.error) throw new Error(data?.error || "Letöltési hiba");
+      const p = await fetchFile64(file);
       const link=document.createElement("a");
-      link.href=`data:${data.mimeType};base64,${data.base64}`;
-      link.download=file.name || "dokumentum";
+      link.href=p.src;
+      link.download=file.name || "file";
       document.body.appendChild(link); link.click(); link.remove();
     }catch(e){ alert("Hiba: "+e.message); }
   }
@@ -142,15 +144,14 @@ export default function TripPage(){
 
   const Row = ({item}) => (
     <li className="flex items-center justify-between">
-      <button className="text-left underline hover:no-underline truncate" onClick={()=>{
-        if(item.kind==="photo") openPhoto(item); else downloadDoc(item);
-      }}>
+      <button className="text-left underline hover:no-underline truncate" onClick={()=>openPreview(item)}>
         {item.name}
       </button>
       <span className="flex items-center gap-3 text-gray-500 text-sm">
         {item.kind === "photo" ? null : <span>{item.mimeType}</span>}
         <span>{fmtSize(item.size)}</span>
         <span className="text-xs px-2 py-0.5 border rounded">{item.visibility}</span>
+        <a className="text-xs underline" onClick={(e)=>{e.preventDefault(); downloadFile(item);}}>Letöltés</a>
         {item.canManage && (
           <>
             <button className="px-2 py-0.5 border rounded" onClick={()=>onToggle(item)} disabled={busy}>
@@ -162,6 +163,32 @@ export default function TripPage(){
       </span>
     </li>
   );
+
+  // Előnézet tartalom MIME szerint
+  function PreviewContent({src, mime, name}){
+    if(mime?.startsWith("image/")){
+      return <img src={src} alt={name} className="max-h-[90vh] max-w-[90vw] shadow-2xl border" />;
+    }
+    if(mime === "application/pdf"){
+      return <iframe src={src} title={name} className="w-[90vw] h-[90vh] bg-white" />;
+    }
+    if(mime?.startsWith("video/")){
+      return <video src={src} controls className="max-h-[90vh] max-w-[90vw] bg-black" />;
+    }
+    if(mime?.startsWith("audio/")){
+      return <audio src={src} controls className="w-[80vw]" />;
+    }
+    if(mime?.startsWith("text/")){
+      return <iframe src={src} title={name} className="w-[90vw] h-[90vh] bg-white" />;
+    }
+    // ismeretlen típus: tájékoztatás + letöltés
+    return (
+      <div className="bg-white p-6 rounded shadow max-w-[80vw]">
+        <p className="mb-4">Ezt a fájlt a böngésző nem tudja megjeleníteni.</p>
+        <button className="px-3 py-1 border rounded" onClick={()=>downloadFile({name, id:"__nope"})}>Letöltés</button>
+      </div>
+    );
+  }
 
   return (
     <main className="space-y-6">
@@ -208,15 +235,15 @@ export default function TripPage(){
         )}
       </section>
 
-      {/* Lightbox */}
+      {/* Lightbox / előnézet */}
       {preview && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center" onClick={()=>setPreview(null)}>
-          <img src={preview.src} alt={preview.name} className="max-h-[90vh] max-w-[90vw] shadow-2xl border" />
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={()=>setPreview(null)}>
+          <PreviewContent {...preview} />
         </div>
       )}
 
       <div className="text-xs text-gray-400">ID: {trip.id}</div>
-      <div className="text-xs text-gray-400">Képek kattintással előnézetben nyílnak meg. Dokumentumok kattintással letöltődnek.</div>
+      <div className="text-xs text-gray-400">Képek és doksik előnézete kattintásra. Letöltéshez használd a „Letöltés” linket.</div>
     </main>
   );
 }
