@@ -22,6 +22,21 @@ function bytesToKb(bytes) {
   return `${kb} kB`;
 }
 
+// Dokumentum mime → emberi típus
+function prettyType(mime) {
+  if (!mime) return "Ismeretlen típus";
+  const m = String(mime).toLowerCase();
+
+  if (m === "application/pdf") return "PDF";
+  if (m.startsWith("image/")) return "Kép";
+  if (m.includes("word") || m.includes("officedocument.word")) return "Word";
+  if (m.includes("sheet") || m.includes("officedocument.spreadsheet"))
+    return "Táblázat";
+  if (m.includes("presentation")) return "Prezentáció";
+
+  return mime; // fallback: az eredeti mime
+}
+
 function classNames(...parts) {
   return parts.filter(Boolean).join(" ");
 }
@@ -142,12 +157,8 @@ function PhotoThumb({ tripId, file, viewerEmail, onOpen }) {
         )}
       </div>
 
-      {/* Alsó név overlay */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent px-2 pb-1.5 pt-6 text-left">
-        <p className="truncate text-[11px] font-medium text-white">
-          {file.name || "Fotó"}
-        </p>
-      </div>
+      {/* Alsó overlay – később ide jöhet leírás / címke */}
+      {/* Most nem mutatunk fájlnevet, hogy tiszta maradjon a grid */}
     </button>
   );
 }
@@ -457,9 +468,6 @@ export default function TripPage({ params }) {
                     {formatVisibility(trip.visibility)}
                   </span>
                 )}
-                <div className="rounded-full bg-black/20 px-3 py-1 font-mono text-[10px]">
-                  ID: {trip.id}
-                </div>
                 {isOwner && (
                   <div className="rounded-full bg-black/20 px-3 py-1 text-[11px]">
                     (Te vagy ennek az útnak a tulajdonosa.)
@@ -571,10 +579,6 @@ export default function TripPage({ params }) {
                           <KebabMenu items={menuItems} />
                         </div>
                       </div>
-
-                      <div className="flex items-center justify-between text-[11px] text-slate-500">
-                        <span>{bytesToKb(p.size)}</span>
-                      </div>
                     </div>
                   );
                 })}
@@ -671,8 +675,7 @@ export default function TripPage({ params }) {
                       >
                         <p className="truncate font-medium">{d.name}</p>
                         <p className="mt-0.5 text-[11px] text-slate-500">
-                          {d.mimeType || "ismeretlen típus"} •{" "}
-                          {bytesToKb(d.size)}
+                          {prettyType(d.mimeType)} • {bytesToKb(d.size)}
                         </p>
                       </button>
 
