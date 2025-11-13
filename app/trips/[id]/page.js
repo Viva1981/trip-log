@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 
+/* ===== Helper függvények ===== */
+
 function formatDate(iso) {
   if (!iso) return "-";
   return String(iso).slice(0, 10);
@@ -22,26 +24,20 @@ function bytesToKb(bytes) {
   return `${kb} kB`;
 }
 
-// Dokumentum mime → emberi típus
-function prettyType(mime) {
-  if (!mime) return "Ismeretlen típus";
-  const m = String(mime).toLowerCase();
-
-  if (m === "application/pdf") return "PDF";
-  if (m.startsWith("image/")) return "Kép";
-  if (m.includes("word") || m.includes("officedocument.word")) return "Word";
-  if (m.includes("sheet") || m.includes("officedocument.spreadsheet"))
-    return "Táblázat";
-  if (m.includes("presentation")) return "Prezentáció";
-
-  return mime; // fallback: az eredeti mime
+function niceMime(mime) {
+  if (!mime) return "Fájl";
+  const m = mime.toLowerCase();
+  if (m.includes("pdf")) return "PDF";
+  if (m.includes("image/")) return "Kép";
+  if (m.includes("word") || m.includes("officedocument.word")) return "DOCX";
+  if (m.includes("excel") || m.includes("spreadsheet")) return "XLSX";
+  if (m.includes("text")) return "Szöveg";
+  return "Fájl";
 }
 
 function classNames(...parts) {
   return parts.filter(Boolean).join(" ");
 }
-
-// ======== Közös segéd: fájl → base64 ========
 
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
@@ -60,7 +56,7 @@ function fileToBase64(file) {
   });
 }
 
-// ======== Közös UI: Kebab menü ========
+/* ===== Kebab menü ===== */
 
 function KebabMenu({ items, alignRight = true }) {
   const [open, setOpen] = useState(false);
@@ -78,7 +74,7 @@ function KebabMenu({ items, alignRight = true }) {
       {open && (
         <div
           className={classNames(
-            "absolute z-20 mt-1 w-40 origin-top rounded-md bg-white py-1 text-xs text-slate-700 shadow-lg ring-1 ring-black/5",
+            "absolute z-20 mt-1 w-44 origin-top rounded-md bg-white py-1 text-xs text-slate-700 shadow-lg ring-1 ring-black/5",
             alignRight ? "right-0" : "left-0"
           )}
         >
@@ -104,7 +100,7 @@ function KebabMenu({ items, alignRight = true }) {
   );
 }
 
-// ======== Fotó thumb ========
+/* ===== Fotó thumb komponens ===== */
 
 function PhotoThumb({ tripId, file, viewerEmail, onOpen }) {
   const [thumbUrl, setThumbUrl] = useState("");
@@ -112,6 +108,7 @@ function PhotoThumb({ tripId, file, viewerEmail, onOpen }) {
 
   useEffect(() => {
     let cancelled = false;
+
     async function loadThumb() {
       try {
         setLoading(true);
@@ -131,6 +128,7 @@ function PhotoThumb({ tripId, file, viewerEmail, onOpen }) {
         if (!cancelled) setLoading(false);
       }
     }
+
     loadThumb();
     return () => {
       cancelled = true;
@@ -141,13 +139,13 @@ function PhotoThumb({ tripId, file, viewerEmail, onOpen }) {
     <button
       type="button"
       onClick={onOpen}
-      className="group block w-full overflow-hidden rounded-xl bg-slate-200 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:ring-blue-400"
+      className="group relative block w-full overflow-hidden rounded-xl bg-slate-200 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:ring-blue-400"
     >
       <div className="aspect-[4/3] w-full">
         {thumbUrl && !loading ? (
           <img
             src={thumbUrl}
-            alt={file.name || "Fotó"}
+            alt={file.description || file.name || "Fotó"}
             className="h-full w-full object-cover transition group-hover:scale-[1.03]"
           />
         ) : (
@@ -156,14 +154,18 @@ function PhotoThumb({ tripId, file, viewerEmail, onOpen }) {
           </div>
         )}
       </div>
-
-      {/* Alsó overlay – később ide jöhet leírás / címke */}
-      {/* Most nem mutatunk fájlnevet, hogy tiszta maradjon a grid */}
+      {(file.description || file.name) && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent px-2 pb-1.5 pt-6 text-left">
+          <p className="truncate text-[11px] font-medium text-white">
+            {file.description || file.name}
+          </p>
+        </div>
+      )}
     </button>
   );
 }
 
-// ======== Fő komponens: Trip oldal ========
+/* ===== Fő oldal ===== */
 
 export default function TripPage({ params }) {
   const tripId = params.id;
@@ -174,6 +176,9 @@ export default function TripPage({ params }) {
   const [trip, setTrip] = useState(null);
   const [tripError, setTripError] = useState("");
   const [tripLoading, setTripLoading] = useState(false);
+
+  const [noteDraft, setNoteDraft] = useState("");
+  const [noteSaving, setNoteSaving] = useState(false);
 
   const [files, setFiles] = useState({
     photos: [],
@@ -192,19 +197,26 @@ export default function TripPage({ params }) {
   const [modalLoading, setModalLoading] = useState(false);
   const [modalError, setModalError] = useState("");
 
+  const isOwner =
+    trip && viewerEmail && viewerEmail.toLowerCase() === String(trip.ownerEmail || "").toLowerCase();
+
+  /* ---- Betöltés ---- */
+
   async function loadTrip() {
     try {
       setTripLoading(true);
       setTripError("");
-      const params = new URLSearchParams();
-      params.set("id", tripId);
-      if (viewerEmail) params.set("viewerEmail", viewerEmail);
-      const res = await fetch("/api/gs/trip?" + params.toString());
+      const qs = new URLSearchParams();
+      qs.set("id", tripId);
+      if (viewerEmail) qs.set("viewerEmail", viewerEmail);
+
+      const res = await fetch("/api/gs/trip?" + qs.toString());
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) {
         throw new Error(data.error || "Nem sikerült betölteni az utazást.");
       }
       setTrip(data);
+      setNoteDraft(data.note || "");
     } catch (err) {
       console.error(err);
       setTrip(null);
@@ -218,10 +230,11 @@ export default function TripPage({ params }) {
     try {
       setFilesLoading(true);
       setFilesError("");
-      const params = new URLSearchParams();
-      params.set("id", tripId);
-      if (viewerEmail) params.set("viewerEmail", viewerEmail);
-      const res = await fetch("/api/gs/list-files?" + params.toString());
+      const qs = new URLSearchParams();
+      qs.set("id", tripId);
+      if (viewerEmail) qs.set("viewerEmail", viewerEmail);
+
+      const res = await fetch("/api/gs/list-files?" + qs.toString());
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) {
         throw new Error(data.error || "Nem sikerült betölteni a fájlokat.");
@@ -245,6 +258,8 @@ export default function TripPage({ params }) {
     loadFiles();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tripId, viewerEmail]);
+
+  /* ---- Feltöltés ---- */
 
   async function handleUpload(kind, file) {
     if (!file) return;
@@ -293,6 +308,8 @@ export default function TripPage({ params }) {
     }
   }
 
+  /* ---- Fájl műveletek ---- */
+
   async function handleDelete(file) {
     if (!viewerEmail) {
       alert("Törléshez be kell jelentkezni.");
@@ -334,6 +351,7 @@ export default function TripPage({ params }) {
       alert("Csak a feltöltő módosíthatja a láthatóságot.");
       return;
     }
+
     const newVis = file.visibility === "public" ? "private" : "public";
 
     try {
@@ -358,6 +376,48 @@ export default function TripPage({ params }) {
     }
   }
 
+  async function handleEditDescription(file) {
+    if (!viewerEmail) {
+      alert("Módosításhoz be kell jelentkezni.");
+      return;
+    }
+    if (!file.canManage) {
+      alert("Csak a feltöltő módosíthatja a nevet / megjegyzést.");
+      return;
+    }
+
+    const current = file.description || "";
+    const next = prompt(
+      "Adj meg egy rövid nevet / megjegyzést (max. 50 karakter):",
+      current
+    );
+    if (next === null) return;
+    const trimmed = next.trim().slice(0, 50);
+
+    try {
+      const res = await fetch("/api/gs/update-file-description", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: tripId,
+          fileId: file.id,
+          description: trimmed,
+          viewerEmail,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) {
+        throw new Error(
+          data.error || "Nem sikerült frissíteni a nevet / megjegyzést."
+        );
+      }
+      await loadFiles();
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Ismeretlen hiba történt.");
+    }
+  }
+
   async function openFileModal(file) {
     try {
       setModalOpen(true);
@@ -365,18 +425,19 @@ export default function TripPage({ params }) {
       setModalError("");
       setModalDataUrl("");
       setModalMime("");
-      setModalTitle(file.name || "");
+      setModalTitle(file.description || file.name || "");
 
-      const params = new URLSearchParams();
-      params.set("tripId", tripId);
-      params.set("fileId", file.id);
-      if (viewerEmail) params.set("viewerEmail", viewerEmail);
+      const qs = new URLSearchParams();
+      qs.set("tripId", tripId);
+      qs.set("fileId", file.id);
+      if (viewerEmail) qs.set("viewerEmail", viewerEmail);
 
-      const res = await fetch("/api/gs/file64?" + params.toString());
+      const res = await fetch("/api/gs/file64?" + qs.toString());
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.ok || !data.base64 || !data.mimeType) {
-        throw new Error(data.error || "Nem sikerült betölteni a fájlt.");
+      if (!res.ok || data.error || !data.base64 || !data.mimeType) {
+        throw new Error(data.error || "Nem sikerült megnyitni a fájlt.");
       }
+
       setModalMime(data.mimeType);
       setModalDataUrl(`data:${data.mimeType};base64,${data.base64}`);
     } catch (err) {
@@ -387,363 +448,429 @@ export default function TripPage({ params }) {
     }
   }
 
-  const isOwner =
-    trip &&
-    viewerEmail &&
-    String(trip.ownerEmail || "").toLowerCase() === viewerEmail.toLowerCase();
+  function closeModal() {
+    setModalOpen(false);
+    setModalDataUrl("");
+    setModalMime("");
+    setModalTitle("");
+    setModalError("");
+    setModalLoading(false);
+  }
+
+  /* ---- Trip note mentés ---- */
+
+  async function handleSaveNote() {
+    if (!viewerEmail || !trip) return;
+    if (!isOwner) {
+      alert("Csak a tulajdonos módosíthatja a megjegyzést.");
+      return;
+    }
+
+    const trimmed = (noteDraft || "").trim().slice(0, 500);
+
+    try {
+      setNoteSaving(true);
+      const res = await fetch("/api/gs/update-trip-note", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: tripId,
+          note: trimmed,
+          viewerEmail,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Nem sikerült menteni a megjegyzést.");
+      }
+      // Frissítjük a trip objektumot is lokálisan
+      setTrip((prev) => (prev ? { ...prev, note: trimmed } : prev));
+      setNoteDraft(trimmed);
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Ismeretlen hiba történt a mentésnél.");
+    } finally {
+      setNoteSaving(false);
+    }
+  }
+
+  /* ===== Render ===== */
+
+  const visibilityLabel = formatVisibility(trip?.visibility);
 
   return (
-    <main className="min-h-screen bg-slate-50">
-      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
-        {/* Vissza link */}
-        <div className="mb-4">
-          <Link
-            href="/"
-            className="inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-700"
-          >
-            <span className="text-lg leading-none">←</span>
-            <span>Vissza az utazáslistához</span>
-          </Link>
+    <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
+      <div className="mb-4">
+        <Link
+          href="/"
+          className="inline-flex items-center text-sm font-medium text-blue-600 hover:text-blue-800"
+        >
+          <span className="mr-1 text-lg">←</span> Vissza az utazáslistához
+        </Link>
+      </div>
+
+      {tripLoading && !trip && (
+        <div className="rounded-lg bg-white p-6 shadow-sm ring-1 ring-slate-200">
+          Utazás betöltése…
         </div>
+      )}
 
-        {/* TRIP HEADER – „booking-szerű” kártya */}
-        <section className="mb-6 overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600 via-blue-500 to-indigo-500 shadow-lg">
-          <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-start sm:justify-between sm:p-6">
-            <div className="flex-1 text-white">
-              {tripLoading && (
-                <div className="h-20 animate-pulse rounded-xl bg-white/10" />
-              )}
-              {tripError && !tripLoading && (
-                <div className="rounded-xl bg-red-900/40 px-3 py-2 text-sm text-red-50">
-                  {tripError}
-                </div>
-              )}
-              {trip && !tripLoading && !tripError && (
-                <>
-                  <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-                    {trip.title || "Névtelen utazás"}
-                  </h1>
+      {tripError && !trip && (
+        <div className="rounded-lg bg-red-50 p-6 text-sm text-red-700 ring-1 ring-red-200">
+          Hiba az utazás betöltésekor: {tripError}
+        </div>
+      )}
+
+      {trip && (
+        <>
+          {/* Header kártya – ID nélkül */}
+          <section className="mb-6 rounded-3xl bg-gradient-to-r from-blue-500 to-indigo-500 p-6 text-white shadow-lg">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight">
+                  {trip.title || "Utazás"}
+                </h1>
+                {trip.destination && (
                   <p className="mt-1 text-sm text-blue-100">
-                    {trip.destination || "Ismeretlen desztináció"}
+                    {trip.destination}
                   </p>
+                )}
 
-                  <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-blue-50">
-                    <div className="flex items-center gap-1">
-                      <span className="font-semibold">Mettől:</span>
-                      <span>{formatDate(trip.dateFrom)}</span>
-                      <span className="mx-1 opacity-60">→</span>
-                      <span className="font-semibold">Meddig:</span>
-                      <span>{formatDate(trip.dateTo)}</span>
-                    </div>
-                    <div className="h-4 w-px bg-blue-200/40" />
-                    <div>
-                      <span className="font-semibold">Létrehozó:</span>{" "}
-                      <span>
-                        {trip.ownerName || trip.ownerEmail || "Ismeretlen"}
-                      </span>
-                    </div>
-                  </div>
+                <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-blue-100">
+                  <span>
+                    <span className="font-semibold">Mettől:</span>{" "}
+                    {formatDate(trip.dateFrom)}
+                  </span>
+                  <span>→</span>
+                  <span>
+                    <span className="font-semibold">Meddig:</span>{" "}
+                    {formatDate(trip.dateTo)}
+                  </span>
+                  <span className="hidden sm:inline-block">•</span>
+                  <span>
+                    <span className="font-semibold">Létrehozó:</span>{" "}
+                    {trip.ownerName || trip.ownerEmail || "Ismeretlen"}
+                  </span>
+                </div>
 
-                  <p className="mt-2 text-[11px] text-blue-100/90">
-                    Utitársak:{" "}
-                    {trip.companions && String(trip.companions).trim()
-                      ? String(trip.companions)
-                      : "—"}
+                {isOwner && (
+                  <p className="mt-2 text-xs text-blue-100/80">
+                    Te vagy ennek az útnak a tulajdonosa.
                   </p>
-                </>
-              )}
-            </div>
+                )}
+              </div>
 
-            {trip && !tripLoading && !tripError && (
-              <div className="flex flex-col items-end gap-2 text-xs text-blue-50">
-                {trip.visibility && (
+              <div className="flex flex-col items-end gap-2">
+                {visibilityLabel && (
                   <span
                     className={classNames(
                       "inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold shadow-sm",
                       trip.visibility === "public"
-                        ? "bg-emerald-400 text-emerald-900"
-                        : "bg-slate-100 text-slate-900"
+                        ? "bg-emerald-100/90 text-emerald-800"
+                        : "bg-amber-100/90 text-amber-800"
                     )}
                   >
-                    {formatVisibility(trip.visibility)}
+                    {visibilityLabel}
                   </span>
                 )}
-                {isOwner && (
-                  <div className="rounded-full bg-black/20 px-3 py-1 text-[11px]">
-                    (Te vagy ennek az útnak a tulajdonosa.)
-                  </div>
-                )}
               </div>
-            )}
-          </div>
-        </section>
+            </div>
+          </section>
 
-        {/* FÁJLOK – két hasáb, kebab menükkel */}
-        <section className="grid gap-6 md:grid-cols-2">
-          {/* Fotók blokk */}
-          <div className="rounded-2xl bg-white/90 p-4 shadow-sm ring-1 ring-slate-200">
-            <div className="mb-3 flex items-center justify-between gap-2">
+          {/* Megjegyzés az útról */}
+          <section className="mb-6 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+            <div className="flex items-start justify-between gap-3">
               <div>
-                <h2 className="text-sm font-semibold text-slate-900">Fotók</h2>
-                <p className="text-[11px] text-slate-500">
-                  Limit: {files.limits.maxPhoto} db • jelenleg:{" "}
-                  {files.photos.length}
+                <h2 className="text-sm font-semibold text-slate-800">
+                  Megjegyzés az útról
+                </h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Rövid leírás, fontos infók, max. 500 karakter.
                 </p>
               </div>
-              {viewerEmail && (
-                <label className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-slate-800">
+            </div>
+
+            <div className="mt-3">
+              {isOwner ? (
+                <>
+                  <textarea
+                    value={noteDraft}
+                    onChange={(e) =>
+                      setNoteDraft(e.target.value.slice(0, 500))
+                    }
+                    rows={3}
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+                    placeholder="Rövid megjegyzés az útról (opcionális)…"
+                  />
+                  <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500">
+                    <span>{noteDraft.length} / 500 karakter</span>
+                    <button
+                      type="button"
+                      onClick={handleSaveNote}
+                      disabled={noteSaving}
+                      className="inline-flex items-center rounded-full bg-blue-600 px-3 py-1 text-xs font-medium text-white shadow-sm hover:bg-blue-700 disabled:opacity-60"
+                    >
+                      {noteSaving ? "Mentés…" : "Megjegyzés mentése"}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-slate-700 whitespace-pre-wrap">
+                  {trip.note && trip.note.trim()
+                    ? trip.note
+                    : "Ehhez az úthoz még nincs megjegyzés."}
+                </p>
+              )}
+            </div>
+          </section>
+
+          {/* Tartalom kártyák: Fotók + Dokumentumok */}
+          <section className="grid gap-4 md:grid-cols-2">
+            {/* Fotók */}
+            <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-sm font-semibold text-slate-800">
+                    Fotók
+                  </h2>
+                  <p className="text-[11px] text-slate-500">
+                    Limit: {files.limits.maxPhoto} db • jelenleg:{" "}
+                    {files.photos.length}
+                  </p>
+                </div>
+                <label className="inline-flex cursor-pointer items-center rounded-full bg-blue-600 px-3 py-1 text-xs font-medium text-white shadow-sm hover:bg-blue-700">
+                  {uploadBusy ? "Feltöltés…" : "Fájl kiválasztása"}
                   <input
                     type="file"
-                    className="hidden"
                     accept="image/*"
+                    className="hidden"
                     disabled={uploadBusy}
                     onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleUpload("photo", file);
+                      const f = e.target.files?.[0];
+                      if (f) handleUpload("photo", f);
                       e.target.value = "";
                     }}
                   />
-                  {uploadBusy ? "Feltöltés…" : "Fájl kiválasztása"}
                 </label>
+              </div>
+
+              {filesLoading && (
+                <p className="text-xs text-slate-500">Fotók betöltése…</p>
               )}
-            </div>
+              {filesError && (
+                <p className="text-xs text-red-600">
+                  Hiba a fotók betöltésekor: {filesError}
+                </p>
+              )}
 
-            {filesError && (
-              <div className="mb-2 rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700">
-                {filesError}
-              </div>
-            )}
-
-            {filesLoading && (
-              <div className="grid grid-cols-2 gap-2">
-                {[1, 2, 3].map((i) => (
-                  <div
-                    key={i}
-                    className="h-24 animate-pulse rounded-xl bg-slate-200/80"
-                  />
-                ))}
-              </div>
-            )}
-
-            {!filesLoading && files.photos.length === 0 && (
-              <p className="mt-2 text-xs text-slate-500">
-                Még nincs feltöltött fotó ehhez az utazáshoz.
-              </p>
-            )}
-
-            {!filesLoading && files.photos.length > 0 && (
-              <div className="mt-1 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                {files.photos.map((p) => {
-                  const isPublic = p.visibility === "public";
-                  const canManage = !!p.canManage;
-
-                  const menuItems = [
-                    {
-                      label: "Megnyitás",
-                      onClick: () => openFileModal(p),
-                    },
-                  ];
-
-                  if (canManage) {
-                    menuItems.push({
-                      label: isPublic ? "Priváttá tétel" : "Publikussá tétel",
-                      onClick: () => handleToggleVisibility(p),
-                    });
-                    menuItems.push({
-                      label: "Törlés",
-                      danger: true,
-                      onClick: () => handleDelete(p),
-                    });
-                  }
-
-                  return (
-                    <div key={p.id} className="space-y-1">
-                      <div className="relative">
-                        <PhotoThumb
-                          tripId={tripId}
-                          file={p}
-                          viewerEmail={viewerEmail}
-                          onOpen={() => openFileModal(p)}
-                        />
-                        {/* Láthatóság jelző kis pont */}
-                        <div className="pointer-events-none absolute left-1.5 top-1.5 flex items-center gap-1 text-[10px]">
-                          <span
-                            className={classNames(
-                              "inline-block h-2.5 w-2.5 rounded-full border border-white/60",
-                              isPublic ? "bg-emerald-400" : "bg-slate-400"
-                            )}
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {files.photos.map((file) => (
+                  <div key={file.id} className="flex flex-col gap-1">
+                    <div className="relative">
+                      <PhotoThumb
+                        tripId={tripId}
+                        file={file}
+                        viewerEmail={viewerEmail}
+                        onOpen={() => openFileModal(file)}
+                      />
+                      <div className="absolute right-1 top-1 flex items-center gap-1">
+                        {file.visibility === "public" ? (
+                          <span className="rounded-full bg-emerald-100/90 px-2 py-0.5 text-[10px] font-medium text-emerald-800 shadow-sm">
+                            publikus
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-amber-100/90 px-2 py-0.5 text-[10px] font-medium text-amber-800 shadow-sm">
+                            privát
+                          </span>
+                        )}
+                        {file.canManage && (
+                          <KebabMenu
+                            items={[
+                              {
+                                label: "Megnyitás nagyban",
+                                onClick: () => openFileModal(file),
+                              },
+                              {
+                                label: "Név / megjegyzés szerkesztése",
+                                onClick: () => handleEditDescription(file),
+                              },
+                              {
+                                label:
+                                  file.visibility === "public"
+                                    ? "Privátra állítás"
+                                    : "Publikusra állítás",
+                                onClick: () => handleToggleVisibility(file),
+                              },
+                              {
+                                label: "Törlés",
+                                danger: true,
+                                onClick: () => handleDelete(file),
+                              },
+                            ]}
                           />
-                        </div>
-                        {/* Kebab menü */}
-                        <div className="absolute right-1.5 top-1.5">
-                          <KebabMenu items={menuItems} />
-                        </div>
+                        )}
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+                  </div>
+                ))}
 
-          {/* Dokumentumok blokk */}
-          <div className="rounded-2xl bg-white/90 p-4 shadow-sm ring-1 ring-slate-200">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <div>
-                <h2 className="text-sm font-semibold text-slate-900">
-                  Dokumentumok
-                </h2>
-                <p className="text-[11px] text-slate-500">
-                  Limit: {files.limits.maxDoc} db • jelenleg:{" "}
-                  {files.docs.length}
-                </p>
+                {files.photos.length === 0 && !filesLoading && (
+                  <p className="col-span-full text-xs text-slate-500">
+                    Még nincs feltöltött fotó ehhez az úthoz.
+                  </p>
+                )}
               </div>
-              {viewerEmail && (
-                <label className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-slate-800">
+            </div>
+
+            {/* Dokumentumok */}
+            <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-sm font-semibold text-slate-800">
+                    Dokumentumok
+                  </h2>
+                  <p className="text-[11px] text-slate-500">
+                    Limit: {files.limits.maxDoc} db • jelenleg:{" "}
+                    {files.docs.length}
+                  </p>
+                </div>
+                <label className="inline-flex cursor-pointer items-center rounded-full bg-blue-600 px-3 py-1 text-xs font-medium text-white shadow-sm hover:bg-blue-700">
+                  {uploadBusy ? "Feltöltés…" : "Fájl kiválasztása"}
                   <input
                     type="file"
                     className="hidden"
                     disabled={uploadBusy}
                     onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleUpload("doc", file);
+                      const f = e.target.files?.[0];
+                      if (f) handleUpload("doc", f);
                       e.target.value = "";
                     }}
                   />
-                  {uploadBusy ? "Feltöltés…" : "Fájl kiválasztása"}
                 </label>
+              </div>
+
+              {filesLoading && (
+                <p className="text-xs text-slate-500">
+                  Dokumentumok betöltése…
+                </p>
               )}
-            </div>
+              {filesError && (
+                <p className="text-xs text-red-600">
+                  Hiba a dokumentumok betöltésekor: {filesError}
+                </p>
+              )}
 
-            {filesError && (
-              <div className="mb-2 rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700">
-                {filesError}
-              </div>
-            )}
-
-            {filesLoading && (
-              <div className="space-y-2">
-                {[1, 2, 3].map((i) => (
+              <div className="mt-2 space-y-2">
+                {files.docs.map((file) => (
                   <div
-                    key={i}
-                    className="h-10 animate-pulse rounded-xl bg-slate-200/80"
-                  />
-                ))}
-              </div>
-            )}
-
-            {!filesLoading && files.docs.length === 0 && (
-              <p className="mt-2 text-xs text-slate-500">
-                Még nincs feltöltött dokumentum ehhez az utazáshoz.
-              </p>
-            )}
-
-            {!filesLoading && files.docs.length > 0 && (
-              <ul className="mt-1 space-y-2 text-sm">
-                {files.docs.map((d) => {
-                  const isPublic = d.visibility === "public";
-                  const canManage = !!d.canManage;
-
-                  const menuItems = [
-                    {
-                      label: "Megnyitás",
-                      onClick: () => openFileModal(d),
-                    },
-                  ];
-
-                  if (canManage) {
-                    menuItems.push({
-                      label: isPublic ? "Priváttá tétel" : "Publikussá tétel",
-                      onClick: () => handleToggleVisibility(d),
-                    });
-                    menuItems.push({
-                      label: "Törlés",
-                      danger: true,
-                      onClick: () => handleDelete(d),
-                    });
-                  }
-
-                  return (
-                    <li
-                      key={d.id}
-                      className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700"
-                    >
+                    key={file.id}
+                    className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 shadow-sm"
+                  >
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                      {niceMime(file.mimeType)}
+                    </div>
+                    <div className="min-w-0 flex-1">
                       <button
                         type="button"
-                        onClick={() => openFileModal(d)}
-                        className="flex-1 text-left"
+                        onClick={() => openFileModal(file)}
+                        className="block w-full text-left text-xs font-medium text-slate-800 hover:text-blue-600"
                       >
-                        <p className="truncate font-medium">{d.name}</p>
-                        <p className="mt-0.5 text-[11px] text-slate-500">
-                          {prettyType(d.mimeType)} • {bytesToKb(d.size)}
-                        </p>
+                        {file.description || file.name || "Dokumentum"}
                       </button>
-
-                      {/* Láthatóság jelző pötty */}
-                      <span
-                        className={classNames(
-                          "inline-block h-2.5 w-2.5 rounded-full border border-white/80",
-                          isPublic ? "bg-emerald-400" : "bg-slate-400"
-                        )}
-                        title={isPublic ? "Publikus" : "Privát"}
-                      />
-
-                      <KebabMenu items={menuItems} />
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        </section>
-
-        {/* Nagykép / doksi MODÁL */}
-        {modalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-            <div className="relative flex max-h-full w-full max-w-4xl flex-col rounded-xl bg-slate-900 text-slate-50 shadow-2xl">
-              <div className="flex items-center justify-between border-b border-slate-700 px-4 py-2">
-                <h3 className="truncate text-sm font-medium">{modalTitle}</h3>
-                <button
-                  type="button"
-                  onClick={() => setModalOpen(false)}
-                  className="rounded bg-slate-800 px-2 py-1 text-xs hover:bg-slate-700"
-                >
-                  Bezárás ✕
-                </button>
-              </div>
-              <div className="flex-1 overflow-auto bg-slate-950/80 p-4">
-                {modalLoading && (
-                  <div className="flex h-64 items-center justify-center text-sm text-slate-300">
-                    Betöltés…
-                  </div>
-                )}
-                {modalError && !modalLoading && (
-                  <div className="rounded border border-red-400 bg-red-900/40 px-3 py-2 text-sm text-red-100">
-                    {modalError}
-                  </div>
-                )}
-                {!modalLoading && !modalError && modalDataUrl && (
-                  <>
-                    {modalMime.startsWith("image/") ? (
-                      <img
-                        src={modalDataUrl}
-                        alt={modalTitle}
-                        className="mx-auto max-h-[70vh] max-w-full object-contain"
-                      />
-                    ) : (
-                      <iframe
-                        title={modalTitle || "Dokumentum"}
-                        src={modalDataUrl}
-                        className="h-[70vh] w-full rounded bg-white"
+                      <p className="mt-0.5 text-[11px] text-slate-500">
+                        {niceMime(file.mimeType)} • {bytesToKb(file.size)}
+                        {file.visibility === "public"
+                          ? " • publikus"
+                          : " • privát"}
+                      </p>
+                    </div>
+                    {file.canManage && (
+                      <KebabMenu
+                        items={[
+                          {
+                            label: "Megnyitás",
+                            onClick: () => openFileModal(file),
+                          },
+                          {
+                            label: "Név / megjegyzés szerkesztése",
+                            onClick: () => handleEditDescription(file),
+                          },
+                          {
+                            label:
+                              file.visibility === "public"
+                                ? "Privátra állítás"
+                                : "Publikusra állítás",
+                            onClick: () => handleToggleVisibility(file),
+                          },
+                          {
+                            label: "Törlés",
+                            danger: true,
+                            onClick: () => handleDelete(file),
+                          },
+                        ]}
                       />
                     )}
-                  </>
+                  </div>
+                ))}
+
+                {files.docs.length === 0 && !filesLoading && (
+                  <p className="text-xs text-slate-500">
+                    Még nincs feltöltött dokumentum ehhez az úthoz.
+                  </p>
                 )}
               </div>
             </div>
+          </section>
+        </>
+      )}
+
+      {/* Modal a nagy nézethez */}
+      {modalOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 px-4 py-8">
+          <div className="relative max-h-full w-full max-w-3xl rounded-2xl bg-white shadow-xl ring-1 ring-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2">
+              <h3 className="text-sm font-semibold text-slate-800 truncate">
+                {modalTitle || "Fájl megnyitása"}
+              </h3>
+              <button
+                type="button"
+                onClick={closeModal}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="max-h-[70vh] overflow-auto p-4">
+              {modalLoading && (
+                <p className="text-sm text-slate-500">Betöltés…</p>
+              )}
+              {modalError && (
+                <p className="text-sm text-red-600">
+                  Hiba a fájl betöltésekor: {modalError}
+                </p>
+              )}
+              {!modalLoading && !modalError && modalDataUrl && (
+                <>
+                  {modalMime.startsWith("image/") ? (
+                    <img
+                      src={modalDataUrl}
+                      alt={modalTitle || "Kép"}
+                      className="mx-auto max-h-[65vh] w-auto rounded-lg"
+                    />
+                  ) : (
+                    <iframe
+                      title={modalTitle || "Dokumentum"}
+                      src={modalDataUrl}
+                      className="h-[65vh] w-full rounded-lg border border-slate-200"
+                    />
+                  )}
+                </>
+              )}
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </main>
   );
 }
