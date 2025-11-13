@@ -26,27 +26,26 @@ function classNames(...parts) {
   return parts.filter(Boolean).join(" ");
 }
 
-// Egyetlen fájl -> base64 (prefix nélkül)
+// ----- Kép → base64 -----
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Nem sikerült beolvasni a fájlt."));
-    reader.onload = () => {
-      const result = reader.result || "";
-      const str = String(result);
-      const idx = str.indexOf("base64,");
+    const r = new FileReader();
+    r.onerror = () => reject(new Error("Nem sikerült beolvasni a fájlt."));
+    r.onload = () => {
+      const result = String(r.result || "");
+      const idx = result.indexOf("base64,");
       if (idx >= 0) {
-        resolve(str.substring(idx + "base64,".length));
+        resolve(result.substring(idx + "base64,".length));
       } else {
-        resolve(str);
+        resolve(result);
       }
     };
-    reader.readAsDataURL(file);
+    r.readAsDataURL(file);
   });
 }
 
-// Kis komponens: egy fotó előnézeti kártya (thumb endpointtal)
-function PhotoThumb({ tripId, file, viewerEmail, onClick }) {
+// ----- Thumb komponens -----
+function PhotoThumb({ tripId, file, viewerEmail, onOpen }) {
   const [thumbUrl, setThumbUrl] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -59,6 +58,7 @@ function PhotoThumb({ tripId, file, viewerEmail, onClick }) {
         params.set("tripId", tripId);
         params.set("fileId", file.id);
         if (viewerEmail) params.set("viewerEmail", viewerEmail);
+
         const res = await fetch("/api/gs/thumb64?" + params.toString());
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.ok || !data.base64 || !data.mimeType) return;
@@ -79,22 +79,26 @@ function PhotoThumb({ tripId, file, viewerEmail, onClick }) {
   return (
     <button
       type="button"
-      onClick={onClick}
-      className="group relative aspect-[4/3] w-full overflow-hidden rounded-lg bg-slate-200 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:ring-blue-400"
+      onClick={onOpen}
+      className="group relative block w-full overflow-hidden rounded-xl bg-slate-200 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:ring-blue-400"
     >
-      {thumbUrl && !loading ? (
-        <img
-          src={thumbUrl}
-          alt={file.name || "Fotó"}
-          className="h-full w-full object-cover transition group-hover:scale-[1.03]"
-        />
-      ) : (
-        <div className="flex h-full w-full items-center justify-center text-xs text-slate-500">
-          Betöltés…
-        </div>
-      )}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-2 pb-1 pt-6 text-left">
-        <p className="truncate text-xs font-medium text-white">
+      <div className="aspect-[4/3] w-full">
+        {thumbUrl && !loading ? (
+          <img
+            src={thumbUrl}
+            alt={file.name || "Fotó"}
+            className="h-full w-full object-cover transition group-hover:scale-[1.03]"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-xs text-slate-500">
+            Betöltés…
+          </div>
+        )}
+      </div>
+
+      {/* Alsó név + overlay */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent px-2 pb-1.5 pt-6 text-left">
+        <p className="truncate text-[11px] font-medium text-white">
           {file.name || "Fotó"}
         </p>
       </div>
@@ -189,6 +193,7 @@ export default function TripPage({ params }) {
       alert("Feltöltéshez be kell jelentkezni.");
       return;
     }
+
     const isPhoto = kind === "photo";
     const limit = isPhoto ? files.limits.maxPhoto : files.limits.maxDoc;
     const currentCount = isPhoto ? files.photos.length : files.docs.length;
@@ -307,6 +312,7 @@ export default function TripPage({ params }) {
       params.set("tripId", tripId);
       params.set("fileId", file.id);
       if (viewerEmail) params.set("viewerEmail", viewerEmail);
+
       const res = await fetch("/api/gs/file64?" + params.toString());
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok || !data.base64 || !data.mimeType) {
@@ -323,7 +329,9 @@ export default function TripPage({ params }) {
   }
 
   const isOwner =
-    trip && viewerEmail && String(trip.ownerEmail || "").toLowerCase() === viewerEmail.toLowerCase();
+    trip &&
+    viewerEmail &&
+    String(trip.ownerEmail || "").toLowerCase() === viewerEmail.toLowerCase();
 
   return (
     <main className="min-h-screen bg-slate-50">
@@ -339,86 +347,95 @@ export default function TripPage({ params }) {
           </Link>
         </div>
 
-        {/* Trip alap info kártya */}
-        <section className="mb-6 rounded-xl bg-white/90 p-4 shadow-sm ring-1 ring-slate-200">
-          {tripLoading && (
-            <div className="h-24 animate-pulse rounded-lg bg-slate-200/80" />
-          )}
-          {tripError && !tripLoading && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-              {tripError}
+        {/* TRIP HEADER – „booking-szerű” kártya */}
+        <section className="mb-6 overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600 via-blue-500 to-indigo-500 shadow-lg">
+          <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-start sm:justify-between sm:p-6">
+            <div className="flex-1 text-white">
+              {tripLoading && (
+                <div className="h-20 animate-pulse rounded-xl bg-white/10" />
+              )}
+              {tripError && !tripLoading && (
+                <div className="rounded-xl bg-red-900/40 px-3 py-2 text-sm text-red-50">
+                  {tripError}
+                </div>
+              )}
+              {trip && !tripLoading && !tripError && (
+                <>
+                  <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+                    {trip.title || "Névtelen utazás"}
+                  </h1>
+                  <p className="mt-1 text-sm text-blue-100">
+                    {trip.destination || "Ismeretlen desztináció"}
+                  </p>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-blue-50">
+                    <div className="flex items-center gap-1">
+                      <span className="font-semibold">Mettől:</span>
+                      <span>{formatDate(trip.dateFrom)}</span>
+                      <span className="mx-1 opacity-60">→</span>
+                      <span className="font-semibold">Meddig:</span>
+                      <span>{formatDate(trip.dateTo)}</span>
+                    </div>
+                    <div className="h-4 w-px bg-blue-200/40" />
+                    <div>
+                      <span className="font-semibold">Létrehozó:</span>{" "}
+                      <span>{trip.ownerName || trip.ownerEmail || "Ismeretlen"}</span>
+                    </div>
+                  </div>
+
+                  <p className="mt-2 text-[11px] text-blue-100/90">
+                    Utitársak:{" "}
+                    {trip.companions && String(trip.companions).trim()
+                      ? String(trip.companions)
+                      : "—"}
+                  </p>
+                </>
+              )}
             </div>
-          )}
-          {trip && !tripLoading && !tripError && (
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div className="flex-1">
-                <h1 className="text-2xl font-semibold text-slate-900">
-                  {trip.title || "Névtelen utazás"}
-                </h1>
-                <p className="mt-1 text-sm text-slate-600">
-                  {trip.destination || "Ismeretlen desztináció"}
-                </p>
-                <p className="mt-2 text-sm text-slate-600">
-                  <span className="font-medium text-slate-700">Mettől:</span>{" "}
-                  {formatDate(trip.dateFrom)}{" "}
-                  <span className="mx-2 text-slate-400">→</span>
-                  <span className="font-medium text-slate-700">Meddig:</span>{" "}
-                  {formatDate(trip.dateTo)}
-                </p>
-                <p className="mt-2 text-sm text-slate-600">
-                  <span className="font-medium text-slate-700">Létrehozó:</span>{" "}
-                  {trip.ownerName || trip.ownerEmail || "Ismeretlen"}
-                </p>
-                <p className="mt-1 text-xs text-slate-500">
-                  Utitársak:{" "}
-                  {trip.companions && String(trip.companions).trim()
-                    ? String(trip.companions)
-                    : "—"}
-                </p>
-              </div>
-              <div className="mt-1 flex flex-col items-start gap-2 sm:items-end">
+
+            {trip && !tripLoading && !tripError && (
+              <div className="flex flex-col items-end gap-2 text-xs text-blue-50">
                 {trip.visibility && (
                   <span
                     className={classNames(
-                      "inline-flex items-center rounded-full px-3 py-1 text-xs font-medium",
+                      "inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold shadow-sm",
                       trip.visibility === "public"
-                        ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
-                        : "bg-slate-100 text-slate-700 ring-1 ring-slate-200"
+                        ? "bg-emerald-400 text-emerald-900"
+                        : "bg-slate-100 text-slate-900"
                     )}
                   >
                     {formatVisibility(trip.visibility)}
                   </span>
                 )}
-                <p className="text-xs text-slate-500">
-                  ID:{" "}
-                  <span className="font-mono text-[11px] text-slate-600">
-                    {trip.id}
-                  </span>
-                </p>
+                <div className="rounded-full bg-black/20 px-3 py-1 font-mono text-[10px]">
+                  ID: {trip.id}
+                </div>
                 {isOwner && (
-                  <p className="text-xs text-slate-500">
+                  <div className="rounded-full bg-black/20 px-3 py-1 text-[11px]">
                     (Te vagy ennek az útnak a tulajdonosa.)
-                  </p>
+                  </div>
                 )}
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </section>
 
-        {/* Fájl szekciók */}
+        {/* FÁJLOK – két hasáb, letisztult UI */}
         <section className="grid gap-6 md:grid-cols-2">
-          {/* Fotók */}
-          <div className="rounded-xl bg-white/90 p-4 shadow-sm ring-1 ring-slate-200">
-            <div className="mb-3 flex items-center justify-between">
+          {/* Fotók blokk */}
+          <div className="rounded-2xl bg-white/90 p-4 shadow-sm ring-1 ring-slate-200">
+            <div className="mb-3 flex items-center justify-between gap-2">
               <div>
-                <h2 className="text-sm font-semibold text-slate-900">Fotók</h2>
-                <p className="text-xs text-slate-500">
+                <h2 className="text-sm font-semibold text-slate-900">
+                  Fotók
+                </h2>
+                <p className="text-[11px] text-slate-500">
                   Limit: {files.limits.maxPhoto} db • jelenleg:{" "}
                   {files.photos.length}
                 </p>
               </div>
               {viewerEmail && (
-                <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-slate-800">
+                <label className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-slate-800">
                   <input
                     type="file"
                     className="hidden"
@@ -436,17 +453,17 @@ export default function TripPage({ params }) {
             </div>
 
             {filesError && (
-              <div className="mb-2 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700">
+              <div className="mb-2 rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700">
                 {filesError}
               </div>
             )}
 
             {filesLoading && (
               <div className="grid grid-cols-2 gap-2">
-                {[1, 2].map((i) => (
+                {[1, 2, 3].map((i) => (
                   <div
                     key={i}
-                    className="h-24 animate-pulse rounded-lg bg-slate-200/80"
+                    className="h-24 animate-pulse rounded-xl bg-slate-200/80"
                   />
                 ))}
               </div>
@@ -459,19 +476,20 @@ export default function TripPage({ params }) {
             )}
 
             {!filesLoading && files.photos.length > 0 && (
-              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {files.photos.map((p) => (
-                  <div key={p.id} className="relative">
+                  <div key={p.id} className="space-y-1">
                     <PhotoThumb
                       tripId={tripId}
                       file={p}
                       viewerEmail={viewerEmail}
-                      onClick={() => openFileModal(p)}
+                      onOpen={() => openFileModal(p)}
                     />
-                    <div className="mt-1 flex items-center justify-between gap-1 text-[11px] text-slate-500">
+
+                    <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
                       <span
                         className={classNames(
-                          "inline-flex items-center rounded-full px-1.5 py-0.5",
+                          "inline-flex items-center rounded-full px-2 py-0.5",
                           p.visibility === "public"
                             ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
                             : "bg-slate-100 text-slate-700 ring-1 ring-slate-200"
@@ -481,19 +499,20 @@ export default function TripPage({ params }) {
                       </span>
                       <span>{bytesToKb(p.size)}</span>
                     </div>
+
                     {p.canManage && (
-                      <div className="mt-1 flex items-center justify-end gap-1 text-[11px]">
+                      <div className="flex items-center justify-end gap-1 text-[11px]">
                         <button
                           type="button"
                           onClick={() => handleToggleVisibility(p)}
-                          className="rounded border border-slate-300 px-1.5 py-0.5 text-slate-700 hover:border-blue-400 hover:text-blue-700"
+                          className="rounded-full border border-slate-300 px-2 py-0.5 text-slate-700 hover:border-blue-400 hover:text-blue-700"
                         >
                           {p.visibility === "public" ? "Priváttá" : "Publikussá"}
                         </button>
                         <button
                           type="button"
                           onClick={() => handleDelete(p)}
-                          className="rounded border border-red-300 px-1.5 py-0.5 text-red-600 hover:bg-red-50"
+                          className="rounded-full border border-red-300 px-2 py-0.5 text-red-600 hover:bg-red-50"
                         >
                           🗑
                         </button>
@@ -505,20 +524,20 @@ export default function TripPage({ params }) {
             )}
           </div>
 
-          {/* Dokumentumok */}
-          <div className="rounded-xl bg-white/90 p-4 shadow-sm ring-1 ring-slate-200">
-            <div className="mb-3 flex items-center justify-between">
+          {/* Dokumentumok blokk */}
+          <div className="rounded-2xl bg-white/90 p-4 shadow-sm ring-1 ring-slate-200">
+            <div className="mb-3 flex items-center justify-between gap-2">
               <div>
                 <h2 className="text-sm font-semibold text-slate-900">
                   Dokumentumok
                 </h2>
-                <p className="text-xs text-slate-500">
+                <p className="text-[11px] text-slate-500">
                   Limit: {files.limits.maxDoc} db • jelenleg:{" "}
                   {files.docs.length}
                 </p>
               </div>
               {viewerEmail && (
-                <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-slate-800">
+                <label className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-slate-800">
                   <input
                     type="file"
                     className="hidden"
@@ -535,7 +554,7 @@ export default function TripPage({ params }) {
             </div>
 
             {filesError && (
-              <div className="mb-2 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700">
+              <div className="mb-2 rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700">
                 {filesError}
               </div>
             )}
@@ -545,7 +564,7 @@ export default function TripPage({ params }) {
                 {[1, 2, 3].map((i) => (
                   <div
                     key={i}
-                    className="h-10 animate-pulse rounded bg-slate-200/80"
+                    className="h-10 animate-pulse rounded-xl bg-slate-200/80"
                   />
                 ))}
               </div>
@@ -558,25 +577,26 @@ export default function TripPage({ params }) {
             )}
 
             {!filesLoading && files.docs.length > 0 && (
-              <ul className="mt-1 space-y-1 text-sm">
+              <ul className="mt-1 space-y-2 text-sm">
                 {files.docs.map((d) => (
                   <li
                     key={d.id}
-                    className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs text-slate-700"
+                    className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700"
                   >
                     <button
                       type="button"
                       onClick={() => openFileModal(d)}
-                      className="flex-1 text-left hover:text-blue-700"
+                      className="flex-1 text-left"
                     >
-                      <span className="font-medium">{d.name}</span>{" "}
-                      <span className="ml-1 text-slate-500">
-                        ({d.mimeType || "ismeretlen típus"})
-                      </span>
+                      <p className="truncate font-medium">{d.name}</p>
+                      <p className="mt-0.5 text-[11px] text-slate-500">
+                        {d.mimeType || "ismeretlen típus"} • {bytesToKb(d.size)}
+                      </p>
                     </button>
+
                     <span
                       className={classNames(
-                        "ml-1 inline-flex items-center rounded-full px-1.5 py-0.5",
+                        "inline-flex items-center rounded-full px-2 py-0.5 text-[11px]",
                         d.visibility === "public"
                           ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
                           : "bg-slate-100 text-slate-700 ring-1 ring-slate-200"
@@ -584,15 +604,13 @@ export default function TripPage({ params }) {
                     >
                       {d.visibility === "public" ? "publikus" : "privát"}
                     </span>
-                    <span className="ml-1 text-slate-500">
-                      {bytesToKb(d.size)}
-                    </span>
+
                     {d.canManage && (
-                      <div className="ml-1 flex items-center gap-1">
+                      <div className="flex items-center gap-1">
                         <button
                           type="button"
                           onClick={() => handleToggleVisibility(d)}
-                          className="rounded border border-slate-300 px-1.5 py-0.5 text-[11px] text-slate-700 hover:border-blue-400 hover:text-blue-700"
+                          className="rounded-full border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:border-blue-400 hover:text-blue-700"
                         >
                           {d.visibility === "public"
                             ? "Priváttá"
@@ -601,7 +619,7 @@ export default function TripPage({ params }) {
                         <button
                           type="button"
                           onClick={() => handleDelete(d)}
-                          className="rounded border border-red-300 px-1.5 py-0.5 text-[11px] text-red-600 hover:bg-red-50"
+                          className="rounded-full border border-red-300 px-2 py-0.5 text-[11px] text-red-600 hover:bg-red-50"
                         >
                           🗑
                         </button>
@@ -619,7 +637,7 @@ export default function TripPage({ params }) {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
             <div className="relative flex max-h-full w-full max-w-4xl flex-col rounded-xl bg-slate-900 text-slate-50 shadow-2xl">
               <div className="flex items-center justify-between border-b border-slate-700 px-4 py-2">
-                <h3 className="text-sm font-medium truncate">{modalTitle}</h3>
+                <h3 className="truncate text-sm font-medium">{modalTitle}</h3>
                 <button
                   type="button"
                   onClick={() => setModalOpen(false)}
