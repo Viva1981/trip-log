@@ -26,7 +26,8 @@ function classNames(...parts) {
   return parts.filter(Boolean).join(" ");
 }
 
-// ----- Kép → base64 -----
+// ======== Közös segéd: fájl → base64 ========
+
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -44,7 +45,52 @@ function fileToBase64(file) {
   });
 }
 
-// ----- Thumb komponens -----
+// ======== Közös UI: Kebab menü ========
+
+function KebabMenu({ items, alignRight = true }) {
+  const [open, setOpen] = useState(false);
+  if (!items || !items.length) return null;
+
+  return (
+    <div className="relative inline-block text-left">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/80 text-slate-600 shadow-sm ring-1 ring-slate-200 hover:bg-white hover:text-slate-900"
+      >
+        <span className="text-lg leading-none">⋯</span>
+      </button>
+      {open && (
+        <div
+          className={classNames(
+            "absolute z-20 mt-1 w-40 origin-top rounded-md bg-white py-1 text-xs text-slate-700 shadow-lg ring-1 ring-black/5",
+            alignRight ? "right-0" : "left-0"
+          )}
+        >
+          {items.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                item.onClick && item.onClick();
+              }}
+              className={classNames(
+                "flex w-full items-center px-3 py-1.5 text-left hover:bg-slate-50",
+                item.danger && "text-red-600 hover:bg-red-50"
+              )}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ======== Fotó thumb ========
+
 function PhotoThumb({ tripId, file, viewerEmail, onOpen }) {
   const [thumbUrl, setThumbUrl] = useState("");
   const [loading, setLoading] = useState(false);
@@ -80,7 +126,7 @@ function PhotoThumb({ tripId, file, viewerEmail, onOpen }) {
     <button
       type="button"
       onClick={onOpen}
-      className="group relative block w-full overflow-hidden rounded-xl bg-slate-200 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:ring-blue-400"
+      className="group block w-full overflow-hidden rounded-xl bg-slate-200 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:ring-blue-400"
     >
       <div className="aspect-[4/3] w-full">
         {thumbUrl && !loading ? (
@@ -96,7 +142,7 @@ function PhotoThumb({ tripId, file, viewerEmail, onOpen }) {
         )}
       </div>
 
-      {/* Alsó név + overlay */}
+      {/* Alsó név overlay */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent px-2 pb-1.5 pt-6 text-left">
         <p className="truncate text-[11px] font-medium text-white">
           {file.name || "Fotó"}
@@ -105,6 +151,8 @@ function PhotoThumb({ tripId, file, viewerEmail, onOpen }) {
     </button>
   );
 }
+
+// ======== Fő komponens: Trip oldal ========
 
 export default function TripPage({ params }) {
   const tripId = params.id;
@@ -379,7 +427,9 @@ export default function TripPage({ params }) {
                     <div className="h-4 w-px bg-blue-200/40" />
                     <div>
                       <span className="font-semibold">Létrehozó:</span>{" "}
-                      <span>{trip.ownerName || trip.ownerEmail || "Ismeretlen"}</span>
+                      <span>
+                        {trip.ownerName || trip.ownerEmail || "Ismeretlen"}
+                      </span>
                     </div>
                   </div>
 
@@ -420,15 +470,13 @@ export default function TripPage({ params }) {
           </div>
         </section>
 
-        {/* FÁJLOK – két hasáb, letisztult UI */}
+        {/* FÁJLOK – két hasáb, kebab menükkel */}
         <section className="grid gap-6 md:grid-cols-2">
           {/* Fotók blokk */}
           <div className="rounded-2xl bg-white/90 p-4 shadow-sm ring-1 ring-slate-200">
             <div className="mb-3 flex items-center justify-between gap-2">
               <div>
-                <h2 className="text-sm font-semibold text-slate-900">
-                  Fotók
-                </h2>
+                <h2 className="text-sm font-semibold text-slate-900">Fotók</h2>
                 <p className="text-[11px] text-slate-500">
                   Limit: {files.limits.maxPhoto} db • jelenleg:{" "}
                   {files.photos.length}
@@ -476,50 +524,60 @@ export default function TripPage({ params }) {
             )}
 
             {!filesLoading && files.photos.length > 0 && (
-              <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {files.photos.map((p) => (
-                  <div key={p.id} className="space-y-1">
-                    <PhotoThumb
-                      tripId={tripId}
-                      file={p}
-                      viewerEmail={viewerEmail}
-                      onOpen={() => openFileModal(p)}
-                    />
+              <div className="mt-1 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                {files.photos.map((p) => {
+                  const isPublic = p.visibility === "public";
+                  const canManage = !!p.canManage;
 
-                    <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
-                      <span
-                        className={classNames(
-                          "inline-flex items-center rounded-full px-2 py-0.5",
-                          p.visibility === "public"
-                            ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
-                            : "bg-slate-100 text-slate-700 ring-1 ring-slate-200"
-                        )}
-                      >
-                        {p.visibility === "public" ? "publikus" : "privát"}
-                      </span>
-                      <span>{bytesToKb(p.size)}</span>
-                    </div>
+                  const menuItems = [
+                    {
+                      label: "Megnyitás",
+                      onClick: () => openFileModal(p),
+                    },
+                  ];
 
-                    {p.canManage && (
-                      <div className="flex items-center justify-end gap-1 text-[11px]">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleVisibility(p)}
-                          className="rounded-full border border-slate-300 px-2 py-0.5 text-slate-700 hover:border-blue-400 hover:text-blue-700"
-                        >
-                          {p.visibility === "public" ? "Priváttá" : "Publikussá"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(p)}
-                          className="rounded-full border border-red-300 px-2 py-0.5 text-red-600 hover:bg-red-50"
-                        >
-                          🗑
-                        </button>
+                  if (canManage) {
+                    menuItems.push({
+                      label: isPublic ? "Priváttá tétel" : "Publikussá tétel",
+                      onClick: () => handleToggleVisibility(p),
+                    });
+                    menuItems.push({
+                      label: "Törlés",
+                      danger: true,
+                      onClick: () => handleDelete(p),
+                    });
+                  }
+
+                  return (
+                    <div key={p.id} className="space-y-1">
+                      <div className="relative">
+                        <PhotoThumb
+                          tripId={tripId}
+                          file={p}
+                          viewerEmail={viewerEmail}
+                          onOpen={() => openFileModal(p)}
+                        />
+                        {/* Láthatóság jelző kis pont */}
+                        <div className="pointer-events-none absolute left-1.5 top-1.5 flex items-center gap-1 text-[10px]">
+                          <span
+                            className={classNames(
+                              "inline-block h-2.5 w-2.5 rounded-full border border-white/60",
+                              isPublic ? "bg-emerald-400" : "bg-slate-400"
+                            )}
+                          />
+                        </div>
+                        {/* Kebab menü */}
+                        <div className="absolute right-1.5 top-1.5">
+                          <KebabMenu items={menuItems} />
+                        </div>
                       </div>
-                    )}
-                  </div>
-                ))}
+
+                      <div className="flex items-center justify-between text-[11px] text-slate-500">
+                        <span>{bytesToKb(p.size)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -578,55 +636,59 @@ export default function TripPage({ params }) {
 
             {!filesLoading && files.docs.length > 0 && (
               <ul className="mt-1 space-y-2 text-sm">
-                {files.docs.map((d) => (
-                  <li
-                    key={d.id}
-                    className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => openFileModal(d)}
-                      className="flex-1 text-left"
-                    >
-                      <p className="truncate font-medium">{d.name}</p>
-                      <p className="mt-0.5 text-[11px] text-slate-500">
-                        {d.mimeType || "ismeretlen típus"} • {bytesToKb(d.size)}
-                      </p>
-                    </button>
+                {files.docs.map((d) => {
+                  const isPublic = d.visibility === "public";
+                  const canManage = !!d.canManage;
 
-                    <span
-                      className={classNames(
-                        "inline-flex items-center rounded-full px-2 py-0.5 text-[11px]",
-                        d.visibility === "public"
-                          ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
-                          : "bg-slate-100 text-slate-700 ring-1 ring-slate-200"
-                      )}
-                    >
-                      {d.visibility === "public" ? "publikus" : "privát"}
-                    </span>
+                  const menuItems = [
+                    {
+                      label: "Megnyitás",
+                      onClick: () => openFileModal(d),
+                    },
+                  ];
 
-                    {d.canManage && (
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleVisibility(d)}
-                          className="rounded-full border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:border-blue-400 hover:text-blue-700"
-                        >
-                          {d.visibility === "public"
-                            ? "Priváttá"
-                            : "Publikussá"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(d)}
-                          className="rounded-full border border-red-300 px-2 py-0.5 text-[11px] text-red-600 hover:bg-red-50"
-                        >
-                          🗑
-                        </button>
-                      </div>
-                    )}
-                  </li>
-                ))}
+                  if (canManage) {
+                    menuItems.push({
+                      label: isPublic ? "Priváttá tétel" : "Publikussá tétel",
+                      onClick: () => handleToggleVisibility(d),
+                    });
+                    menuItems.push({
+                      label: "Törlés",
+                      danger: true,
+                      onClick: () => handleDelete(d),
+                    });
+                  }
+
+                  return (
+                    <li
+                      key={d.id}
+                      className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => openFileModal(d)}
+                        className="flex-1 text-left"
+                      >
+                        <p className="truncate font-medium">{d.name}</p>
+                        <p className="mt-0.5 text-[11px] text-slate-500">
+                          {d.mimeType || "ismeretlen típus"} •{" "}
+                          {bytesToKb(d.size)}
+                        </p>
+                      </button>
+
+                      {/* Láthatóság jelző pötty */}
+                      <span
+                        className={classNames(
+                          "inline-block h-2.5 w-2.5 rounded-full border border-white/80",
+                          isPublic ? "bg-emerald-400" : "bg-slate-400"
+                        )}
+                        title={isPublic ? "Publikus" : "Privát"}
+                      />
+
+                      <KebabMenu items={menuItems} />
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
