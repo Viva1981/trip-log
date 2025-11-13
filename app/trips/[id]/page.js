@@ -1,302 +1,666 @@
 "use client";
-import { useParams } from "next/navigation";
-import { useEffect, useState, useRef } from "react";
+
+import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
+import Link from "next/link";
 
-function fmt(d){ if(!d) return "—"; if(typeof d==="string" && d.length>=10) return d.slice(0,10); try{ return new Date(d).toISOString().slice(0,10); }catch{ return String(d);} }
-function fmtSize(n){ if(n==null) return "—"; if(n<1024) return `${n} B`; if(n<1024*1024) return `${(n/1024).toFixed(1)} KB`; return `${(n/1024/1024).toFixed(2)} MB`; }
+function formatDate(iso) {
+  if (!iso) return "-";
+  return String(iso).slice(0, 10);
+}
 
-export default function TripPage(){
-  const { data: session, status } = useSession();
-  const params = useParams();
+function formatVisibility(vis) {
+  if (!vis) return "";
+  if (vis === "public") return "Publikus";
+  if (vis === "private") return "Privát";
+  return vis;
+}
 
-  const [trip,setTrip]=useState(null);
-  const [error,setError]=useState(null);
-  const [files,setFiles]=useState({ photos:[], docs:[], limits:{ maxPhoto:3, maxDoc:5, maxBytes:10*1024*1024 } });
-  const [busy,setBusy]=useState(false);
+function bytesToKb(bytes) {
+  if (!bytes) return "0 kB";
+  const kb = Math.round(Number(bytes) / 1024);
+  return `${kb} kB`;
+}
 
-  // előnézet (bármilyen MIME): {src, name, mime}
-  const [preview, setPreview] = useState(null);
-  // thumbnail cache: { [fileId]: dataUrl }
-  const [thumbs, setThumbs] = useState({});
-  const triedWithoutEmail = useRef(false);
+function classNames(...parts) {
+  return parts.filter(Boolean).join(" ");
+}
 
-  useEffect(()=>{
-    if(!params?.id) return;
-    if(status==="loading") return;
-    loadTrip().then(()=>loadFiles());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[params?.id, status]);
-
-  useEffect(()=>{
-    // fotókhoz thumbok betöltése
-    (async ()=>{
-      if(!files?.photos?.length) return;
-      for(const p of files.photos){
-        if(!thumbs[p.id]) {
-          try{
-            const t = await fetchThumb64(p);
-            setThumbs(prev => ({ ...prev, [p.id]: t.src }));
-          }catch(_){ /* ignore */ }
-        }
+// Egyetlen fájl -> base64 (prefix nélkül)
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Nem sikerült beolvasni a fájlt."));
+    reader.onload = () => {
+      const result = reader.result || "";
+      const str = String(result);
+      const idx = str.indexOf("base64,");
+      if (idx >= 0) {
+        resolve(str.substring(idx + "base64,".length));
+      } else {
+        resolve(str);
       }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[files.photos]);
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
-  async function loadTrip(){
-    try{
-      setError(null);
-      const qs=new URLSearchParams({ id: params.id });
-      if(status==="authenticated" && session?.user?.email) qs.append("viewerEmail", session.user.email);
-      const res=await fetch(`/api/gs/trip?${qs.toString()}`, { cache:"no-store" });
-      const data=await res.json();
-      if(!res.ok || data?.error){
-        if((data?.error||"").includes("Unauthorized") && status!=="authenticated" && !triedWithoutEmail.current){
-          triedWithoutEmail.current = true; return;
-        }
-        throw new Error(data?.error || "Hiba történt");
+// Kis komponens: egy fotó előnézeti kártya (thumb endpointtal)
+function PhotoThumb({ tripId, file, viewerEmail, onClick }) {
+  const [thumbUrl, setThumbUrl] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadThumb() {
+      try {
+        setLoading(true);
+        const params = new URLSearchParams();
+        params.set("tripId", tripId);
+        params.set("fileId", file.id);
+        if (viewerEmail) params.set("viewerEmail", viewerEmail);
+        const res = await fetch("/api/gs/thumb64?" + params.toString());
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok || !data.base64 || !data.mimeType) return;
+        if (cancelled) return;
+        setThumbUrl(`data:${data.mimeType};base64,${data.base64}`);
+      } catch (err) {
+        console.error("Thumb load error", err);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      const obj=data.trip ?? data; if(!obj?.id) throw new Error("Utazás nem található");
-      setTrip(obj);
-    }catch(e){ setError(e.message); }
-  }
-
-  async function loadFiles(){
-    try{
-      const qs=new URLSearchParams({ id: params.id });
-      if(status==="authenticated" && session?.user?.email) qs.append("viewerEmail", session.user.email);
-      const res=await fetch(`/api/gs/list-files?`+qs.toString(), { cache:"no-store" });
-      const data=await res.json();
-      if(!res.ok || data?.error) throw new Error(data?.error || "Hiba történt");
-      setFiles(data);
-    }catch(e){ console.error(e); }
-  }
-
-  async function toBase64(file){
-    const r=new FileReader();
-    return new Promise((resolve,reject)=>{
-      r.onload=()=>{ const s=String(r.result||""); resolve((s.split(",")[1])||""); };
-      r.onerror=reject; r.readAsDataURL(file);
-    });
-  }
-
-  async function onUpload(kind, ev){
-    const file=ev.target.files?.[0]; ev.target.value="";
-    if(!file) return;
-    const maxBytes=files?.limits?.maxBytes || 10*1024*1024;
-    if(file.size>maxBytes) return alert("A fájl túl nagy (max 10 MB).");
-    if(kind==="photo" && files.photos.length>=(files?.limits?.maxPhoto??3)) return alert("Elérted a fotó limitet.");
-    if(kind==="doc" && files.docs.length>=(files?.limits?.maxDoc??5)) return alert("Elérted a dokumentum limitet.");
-
-    try{
-      setBusy(true);
-      const b64=await toBase64(file);
-      const payload={
-        id: params.id, kind, name: file.name, mimeType: file.type || "application/octet-stream",
-        contentBase64: b64, viewerEmail: session?.user?.email || "", viewerName: session?.user?.name || ""
-      };
-      const res=await fetch(`/api/gs/add-file`, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
-      const data=await res.json();
-      if(!res.ok || data?.error) throw new Error(data?.error || "Feltöltési hiba");
-      await loadFiles();
-    }catch(e){ alert("Hiba: "+e.message); } finally{ setBusy(false); }
-  }
-
-  async function onDelete(fileId){
-    if(!confirm("Biztos törlöd?")) return;
-    try{
-      setBusy(true);
-      const res=await fetch(`/api/gs/delete-file`, {
-        method:"POST", headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({ id: params.id, fileId, viewerEmail: session?.user?.email || "" })
-      });
-      const data=await res.json();
-      if(!res.ok || data?.error) throw new Error(data?.error || "Törlési hiba");
-      await loadFiles();
-      setThumbs(prev => { const cp={...prev}; delete cp[fileId]; return cp; });
-    }catch(e){ alert("Hiba: "+e.message); } finally{ setBusy(false); }
-  }
-
-  async function onToggle(file){
-    const next = file.visibility === "public" ? "private" : "public";
-    try{
-      setBusy(true);
-      const res=await fetch(`/api/gs/toggle-file`, {
-        method:"POST", headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({ id: params.id, fileId: file.id, visibility: next, viewerEmail: session?.user?.email || "" })
-      });
-      const data=await res.json();
-      if(!res.ok || data?.error) throw new Error(data?.error || "Módosítási hiba");
-      await loadFiles();
-    }catch(e){ alert("Hiba: "+e.message); } finally{ setBusy(false); }
-  }
-
-  async function fetchFile64(file){
-    const qs=new URLSearchParams({ path:'file64', tripId: params.id, fileId: file.id });
-    if(status==="authenticated" && session?.user?.email) qs.append("viewerEmail", session.user.email);
-    const res=await fetch(`/api/gs/file64?`+qs.toString(), { cache:"no-store" });
-    const data=await res.json();
-    if(!res.ok || data?.error) throw new Error(data?.error || "Előnézeti hiba");
-    return { src:`data:${data.mimeType};base64,${data.base64}`, name:data.name, mime:data.mimeType };
-  }
-
-  async function fetchThumb64(file){
-    const qs=new URLSearchParams({ path:'thumb64', tripId: params.id, fileId: file.id });
-    if(status==="authenticated" && session?.user?.email) qs.append("viewerEmail", session.user.email);
-    const res=await fetch(`/api/gs/thumb64?`+qs.toString(), { cache:"no-store" });
-    const data=await res.json();
-    if(!res.ok || data?.error) throw new Error(data?.error || "Thumb hiba");
-    return { src:`data:${data.mimeType};base64,${data.base64}` };
-  }
-
-  async function openPreview(file){
-    try{ const p = await fetchFile64(file); setPreview(p); }
-    catch(e){ alert("Hiba: "+e.message); }
-  }
-
-  if(error) return <main className="p-4 text-red-600"><b>Hiba:</b> {error}</main>;
-  if(!trip)  return <main className="p-4"><p>Töltés...</p></main>;
-
-  // Fotó kártya
-  const PhotoCard = ({p}) => (
-    <div className="rounded border overflow-hidden bg-white shadow-sm">
-      <div className="aspect-[4/3] bg-gray-100 flex items-center justify-center cursor-pointer" onClick={()=>openPreview(p)}>
-        {thumbs[p.id] ? (
-          <img src={thumbs[p.id]} alt={p.name} className="object-cover w-full h-full" />
-        ) : (
-          <div className="text-gray-400 text-sm">töltés…</div>
-        )}
-      </div>
-      <div className="p-2 text-sm">
-        <div className="truncate" title={p.name}>{p.name}</div>
-        <div className="flex justify-between items-center mt-1 text-gray-500">
-          <span>{fmtSize(p.size)}</span>
-          <span className="text-xs px-2 py-0.5 border rounded">{p.visibility}</span>
-        </div>
-        {p.canManage && (
-          <div className="flex gap-2 mt-2">
-            <button className="px-2 py-0.5 border rounded" onClick={()=>onToggle(p)} disabled={busy}>
-              {p.visibility === "public" ? "Priváttá" : "Publikussá"}
-            </button>
-            <button className="px-2 py-0.5 border rounded" onClick={()=>onDelete(p.id)} disabled={busy}>🗑️</button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
-  // Doksi kártya
-  function docIcon(mime){
-    if((mime||'').startsWith('application/pdf')) return '📄';
-    if((mime||'').startsWith('video/')) return '🎞️';
-    if((mime||'').startsWith('audio/')) return '🎧';
-    if((mime||'').startsWith('text/')) return '📝';
-    return '📎';
-  }
-  const DocCard = ({d}) => (
-    <div className="rounded border overflow-hidden bg-white shadow-sm">
-      <button className="aspect-[4/3] w-full bg-gray-50 flex items-center justify-center text-5xl cursor-pointer"
-              title="Megnyitás" onClick={()=>openPreview(d)}>
-        {docIcon(d.mimeType)}
-      </button>
-      <div className="p-2 text-sm">
-        <div className="truncate" title={d.name}>{d.name}</div>
-        <div className="flex justify-between items-center mt-1 text-gray-500">
-          <span>{fmtSize(d.size)}</span>
-          <span className="text-xs px-2 py-0.5 border rounded">{d.visibility}</span>
-        </div>
-        {d.canManage && (
-          <div className="flex gap-2 mt-2">
-            <button className="px-2 py-0.5 border rounded" onClick={()=>onToggle(d)} disabled={busy}>
-              {d.visibility === "public" ? "Priváttá" : "Publikussá"}
-            </button>
-            <button className="px-2 py-0.5 border rounded" onClick={()=>onDelete(d.id)} disabled={busy}>🗑️</button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
-  // Előnézet MIME szerint
-  function PreviewContent({src, mime, name}){
-    if(mime?.startsWith("image/")){
-      return <img src={src} alt={name} className="max-h-[90vh] max-w-[90vw] shadow-2xl border" />;
     }
-    if(mime === "application/pdf"){
-      return <iframe src={src} title={name} className="w-[90vw] h-[90vh] bg-white" />;
-    }
-    if(mime?.startsWith("video/")){
-      return <video src={src} controls className="max-h-[90vh] max-w-[90vw] bg-black" />;
-    }
-    if(mime?.startsWith("audio/")){
-      return <audio src={src} controls className="w-[80vw]" />;
-    }
-    if(mime?.startsWith("text/")){
-      return <iframe src={src} title={name} className="w-[90vw] h-[90vh] bg-white" />;
-    }
-    return (
-      <div className="bg-white p-6 rounded shadow max-w-[80vw]">
-        <p className="mb-2">Ezt a fájlt a böngésző nem tudja megjeleníteni.</p>
-        <p className="text-sm text-gray-500">Zárd be ezt az ablakot.</p>
-      </div>
-    );
-  }
+    loadThumb();
+    return () => {
+      cancelled = true;
+    };
+  }, [tripId, file.id, viewerEmail]);
 
   return (
-    <main className="space-y-6">
-      <h1 className="text-2xl font-bold">{trip.title}</h1>
-
-      <div className="grid gap-2">
-        <div className="border rounded p-2"><div className="text-sm text-gray-500">Desztináció</div><div>{trip.destination}</div></div>
-        <div className="border rounded p-2"><div className="text-sm text-gray-500">Láthatóság</div><div>{trip.visibility}</div></div>
-        <div className="border rounded p-2"><div className="text-sm text-gray-500">Mettől</div><div>{fmt(trip.dateFrom)}</div></div>
-        <div className="border rounded p-2"><div className="text-sm text-gray-500">Meddig</div><div>{fmt(trip.dateTo)}</div></div>
-        <div className="border rounded p-2"><div className="text-sm text-gray-500">Útitársak</div><div>{trip.companions || "—"}</div></div>
-        <div className="border rounded p-2"><div className="text-sm text-gray-500">Létrehozó</div><div>{trip.ownerName || trip.ownerEmail || "—"}</div></div>
-      </div>
-
-      {/* Fotók – rács */}
-      <section className="border rounded p-3 space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="font-semibold">Fotók</h2>
-          <input type="file" accept="image/*" onChange={(e)=>onUpload("photo", e)} disabled={busy} />
-        </div>
-        <div className="text-sm text-gray-500">Limit: {files?.limits?.maxPhoto ?? 3} db · jelenleg: {files.photos.length}</div>
-        {files.photos.length === 0 ? (
-          <div className="text-gray-500 text-sm">Még nincs fotó.</div>
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-            {files.photos.map(p => <PhotoCard key={p.id} p={p} />)}
-          </div>
-        )}
-      </section>
-
-      {/* Dokumentumok – rács (nincs letöltés link) */}
-      <section className="border rounded p-3 space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="font-semibold">Dokumentumok</h2>
-        </div>
-        {files.docs.length === 0 ? (
-          <div className="text-gray-500 text-sm">Még nincs dokumentum.</div>
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-            {files.docs.map(d => <DocCard key={d.id} d={d} />)}
-          </div>
-        )}
-        <div className="mt-2">
-          <input type="file" onChange={(e)=>onUpload("doc", e)} disabled={busy} />
-        </div>
-      </section>
-
-      {/* Lightbox / előnézet */}
-      {preview && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={()=>setPreview(null)}>
-          <PreviewContent {...preview} />
+    <button
+      type="button"
+      onClick={onClick}
+      className="group relative aspect-[4/3] w-full overflow-hidden rounded-lg bg-slate-200 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:ring-blue-400"
+    >
+      {thumbUrl && !loading ? (
+        <img
+          src={thumbUrl}
+          alt={file.name || "Fotó"}
+          className="h-full w-full object-cover transition group-hover:scale-[1.03]"
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center text-xs text-slate-500">
+          Betöltés…
         </div>
       )}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-2 pb-1 pt-6 text-left">
+        <p className="truncate text-xs font-medium text-white">
+          {file.name || "Fotó"}
+        </p>
+      </div>
+    </button>
+  );
+}
 
-      <div className="text-xs text-gray-400">ID: {trip.id}</div>
+export default function TripPage({ params }) {
+  const tripId = params.id;
+  const { data: session } = useSession();
+  const viewerEmail = session?.user?.email ?? "";
+  const viewerName = session?.user?.name ?? "";
+
+  const [trip, setTrip] = useState(null);
+  const [tripError, setTripError] = useState("");
+  const [tripLoading, setTripLoading] = useState(false);
+
+  const [files, setFiles] = useState({
+    photos: [],
+    docs: [],
+    limits: { maxPhoto: 3, maxDoc: 5, maxBytes: 10 * 1024 * 1024 },
+  });
+  const [filesLoading, setFilesLoading] = useState(false);
+  const [filesError, setFilesError] = useState("");
+
+  const [uploadBusy, setUploadBusy] = useState(false);
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalDataUrl, setModalDataUrl] = useState("");
+  const [modalTitle, setModalTitle] = useState("");
+  const [modalMime, setModalMime] = useState("");
+  const [modalLoading, setModalLoading] = useState(false);
+  const [modalError, setModalError] = useState("");
+
+  async function loadTrip() {
+    try {
+      setTripLoading(true);
+      setTripError("");
+      const params = new URLSearchParams();
+      params.set("id", tripId);
+      if (viewerEmail) params.set("viewerEmail", viewerEmail);
+      const res = await fetch("/api/gs/trip?" + params.toString());
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Nem sikerült betölteni az utazást.");
+      }
+      setTrip(data);
+    } catch (err) {
+      console.error(err);
+      setTrip(null);
+      setTripError(err.message || "Ismeretlen hiba történt.");
+    } finally {
+      setTripLoading(false);
+    }
+  }
+
+  async function loadFiles() {
+    try {
+      setFilesLoading(true);
+      setFilesError("");
+      const params = new URLSearchParams();
+      params.set("id", tripId);
+      if (viewerEmail) params.set("viewerEmail", viewerEmail);
+      const res = await fetch("/api/gs/list-files?" + params.toString());
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Nem sikerült betölteni a fájlokat.");
+      }
+      setFiles({
+        photos: Array.isArray(data.photos) ? data.photos : [],
+        docs: Array.isArray(data.docs) ? data.docs : [],
+        limits: data.limits || files.limits,
+      });
+    } catch (err) {
+      console.error(err);
+      setFilesError(err.message || "Ismeretlen hiba történt.");
+      setFiles((prev) => ({ ...prev, photos: [], docs: [] }));
+    } finally {
+      setFilesLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadTrip();
+    loadFiles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tripId, viewerEmail]);
+
+  async function handleUpload(kind, file) {
+    if (!file) return;
+    if (!viewerEmail) {
+      alert("Feltöltéshez be kell jelentkezni.");
+      return;
+    }
+    const isPhoto = kind === "photo";
+    const limit = isPhoto ? files.limits.maxPhoto : files.limits.maxDoc;
+    const currentCount = isPhoto ? files.photos.length : files.docs.length;
+    if (currentCount >= limit) {
+      alert(`Elérted a limitet (${limit} db) ebben a szekcióban.`);
+      return;
+    }
+
+    try {
+      setUploadBusy(true);
+      const base64 = await fileToBase64(file);
+
+      const body = {
+        id: tripId,
+        kind,
+        name: file.name,
+        mimeType: file.type || "application/octet-stream",
+        contentBase64: base64,
+        viewerEmail,
+        viewerName,
+      };
+
+      const res = await fetch("/api/gs/add-file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Nem sikerült feltölteni a fájlt.");
+      }
+      await loadFiles();
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Ismeretlen hiba történt feltöltés közben.");
+    } finally {
+      setUploadBusy(false);
+    }
+  }
+
+  async function handleDelete(file) {
+    if (!viewerEmail) {
+      alert("Törléshez be kell jelentkezni.");
+      return;
+    }
+    if (!file.canManage) {
+      alert("Csak a feltöltő törölheti ezt a fájlt.");
+      return;
+    }
+    if (!confirm("Biztosan törlöd ezt a fájlt?")) return;
+
+    try {
+      const res = await fetch("/api/gs/delete-file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: tripId,
+          fileId: file.id,
+          viewerEmail,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Nem sikerült törölni a fájlt.");
+      }
+      await loadFiles();
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Ismeretlen hiba történt.");
+    }
+  }
+
+  async function handleToggleVisibility(file) {
+    if (!viewerEmail) {
+      alert("Módosításhoz be kell jelentkezni.");
+      return;
+    }
+    if (!file.canManage) {
+      alert("Csak a feltöltő módosíthatja a láthatóságot.");
+      return;
+    }
+    const newVis = file.visibility === "public" ? "private" : "public";
+
+    try {
+      const res = await fetch("/api/gs/toggle-file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: tripId,
+          fileId: file.id,
+          visibility: newVis,
+          viewerEmail,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Nem sikerült módosítani a láthatóságot.");
+      }
+      await loadFiles();
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Ismeretlen hiba történt.");
+    }
+  }
+
+  async function openFileModal(file) {
+    try {
+      setModalOpen(true);
+      setModalLoading(true);
+      setModalError("");
+      setModalDataUrl("");
+      setModalMime("");
+      setModalTitle(file.name || "");
+
+      const params = new URLSearchParams();
+      params.set("tripId", tripId);
+      params.set("fileId", file.id);
+      if (viewerEmail) params.set("viewerEmail", viewerEmail);
+      const res = await fetch("/api/gs/file64?" + params.toString());
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok || !data.base64 || !data.mimeType) {
+        throw new Error(data.error || "Nem sikerült betölteni a fájlt.");
+      }
+      setModalMime(data.mimeType);
+      setModalDataUrl(`data:${data.mimeType};base64,${data.base64}`);
+    } catch (err) {
+      console.error(err);
+      setModalError(err.message || "Ismeretlen hiba történt.");
+    } finally {
+      setModalLoading(false);
+    }
+  }
+
+  const isOwner =
+    trip && viewerEmail && String(trip.ownerEmail || "").toLowerCase() === viewerEmail.toLowerCase();
+
+  return (
+    <main className="min-h-screen bg-slate-50">
+      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
+        {/* Vissza link */}
+        <div className="mb-4">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-700"
+          >
+            <span className="text-lg leading-none">←</span>
+            <span>Vissza az utazáslistához</span>
+          </Link>
+        </div>
+
+        {/* Trip alap info kártya */}
+        <section className="mb-6 rounded-xl bg-white/90 p-4 shadow-sm ring-1 ring-slate-200">
+          {tripLoading && (
+            <div className="h-24 animate-pulse rounded-lg bg-slate-200/80" />
+          )}
+          {tripError && !tripLoading && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+              {tripError}
+            </div>
+          )}
+          {trip && !tripLoading && !tripError && (
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex-1">
+                <h1 className="text-2xl font-semibold text-slate-900">
+                  {trip.title || "Névtelen utazás"}
+                </h1>
+                <p className="mt-1 text-sm text-slate-600">
+                  {trip.destination || "Ismeretlen desztináció"}
+                </p>
+                <p className="mt-2 text-sm text-slate-600">
+                  <span className="font-medium text-slate-700">Mettől:</span>{" "}
+                  {formatDate(trip.dateFrom)}{" "}
+                  <span className="mx-2 text-slate-400">→</span>
+                  <span className="font-medium text-slate-700">Meddig:</span>{" "}
+                  {formatDate(trip.dateTo)}
+                </p>
+                <p className="mt-2 text-sm text-slate-600">
+                  <span className="font-medium text-slate-700">Létrehozó:</span>{" "}
+                  {trip.ownerName || trip.ownerEmail || "Ismeretlen"}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Utitársak:{" "}
+                  {trip.companions && String(trip.companions).trim()
+                    ? String(trip.companions)
+                    : "—"}
+                </p>
+              </div>
+              <div className="mt-1 flex flex-col items-start gap-2 sm:items-end">
+                {trip.visibility && (
+                  <span
+                    className={classNames(
+                      "inline-flex items-center rounded-full px-3 py-1 text-xs font-medium",
+                      trip.visibility === "public"
+                        ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                        : "bg-slate-100 text-slate-700 ring-1 ring-slate-200"
+                    )}
+                  >
+                    {formatVisibility(trip.visibility)}
+                  </span>
+                )}
+                <p className="text-xs text-slate-500">
+                  ID:{" "}
+                  <span className="font-mono text-[11px] text-slate-600">
+                    {trip.id}
+                  </span>
+                </p>
+                {isOwner && (
+                  <p className="text-xs text-slate-500">
+                    (Te vagy ennek az útnak a tulajdonosa.)
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Fájl szekciók */}
+        <section className="grid gap-6 md:grid-cols-2">
+          {/* Fotók */}
+          <div className="rounded-xl bg-white/90 p-4 shadow-sm ring-1 ring-slate-200">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">Fotók</h2>
+                <p className="text-xs text-slate-500">
+                  Limit: {files.limits.maxPhoto} db • jelenleg:{" "}
+                  {files.photos.length}
+                </p>
+              </div>
+              {viewerEmail && (
+                <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-slate-800">
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="image/*"
+                    disabled={uploadBusy}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleUpload("photo", file);
+                      e.target.value = "";
+                    }}
+                  />
+                  {uploadBusy ? "Feltöltés…" : "Fájl kiválasztása"}
+                </label>
+              )}
+            </div>
+
+            {filesError && (
+              <div className="mb-2 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700">
+                {filesError}
+              </div>
+            )}
+
+            {filesLoading && (
+              <div className="grid grid-cols-2 gap-2">
+                {[1, 2].map((i) => (
+                  <div
+                    key={i}
+                    className="h-24 animate-pulse rounded-lg bg-slate-200/80"
+                  />
+                ))}
+              </div>
+            )}
+
+            {!filesLoading && files.photos.length === 0 && (
+              <p className="mt-2 text-xs text-slate-500">
+                Még nincs feltöltött fotó ehhez az utazáshoz.
+              </p>
+            )}
+
+            {!filesLoading && files.photos.length > 0 && (
+              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {files.photos.map((p) => (
+                  <div key={p.id} className="relative">
+                    <PhotoThumb
+                      tripId={tripId}
+                      file={p}
+                      viewerEmail={viewerEmail}
+                      onClick={() => openFileModal(p)}
+                    />
+                    <div className="mt-1 flex items-center justify-between gap-1 text-[11px] text-slate-500">
+                      <span
+                        className={classNames(
+                          "inline-flex items-center rounded-full px-1.5 py-0.5",
+                          p.visibility === "public"
+                            ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                            : "bg-slate-100 text-slate-700 ring-1 ring-slate-200"
+                        )}
+                      >
+                        {p.visibility === "public" ? "publikus" : "privát"}
+                      </span>
+                      <span>{bytesToKb(p.size)}</span>
+                    </div>
+                    {p.canManage && (
+                      <div className="mt-1 flex items-center justify-end gap-1 text-[11px]">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleVisibility(p)}
+                          className="rounded border border-slate-300 px-1.5 py-0.5 text-slate-700 hover:border-blue-400 hover:text-blue-700"
+                        >
+                          {p.visibility === "public" ? "Priváttá" : "Publikussá"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(p)}
+                          className="rounded border border-red-300 px-1.5 py-0.5 text-red-600 hover:bg-red-50"
+                        >
+                          🗑
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Dokumentumok */}
+          <div className="rounded-xl bg-white/90 p-4 shadow-sm ring-1 ring-slate-200">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">
+                  Dokumentumok
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Limit: {files.limits.maxDoc} db • jelenleg:{" "}
+                  {files.docs.length}
+                </p>
+              </div>
+              {viewerEmail && (
+                <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-slate-800">
+                  <input
+                    type="file"
+                    className="hidden"
+                    disabled={uploadBusy}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleUpload("doc", file);
+                      e.target.value = "";
+                    }}
+                  />
+                  {uploadBusy ? "Feltöltés…" : "Fájl kiválasztása"}
+                </label>
+              )}
+            </div>
+
+            {filesError && (
+              <div className="mb-2 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700">
+                {filesError}
+              </div>
+            )}
+
+            {filesLoading && (
+              <div className="space-y-2">
+                {[1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    className="h-10 animate-pulse rounded bg-slate-200/80"
+                  />
+                ))}
+              </div>
+            )}
+
+            {!filesLoading && files.docs.length === 0 && (
+              <p className="mt-2 text-xs text-slate-500">
+                Még nincs feltöltött dokumentum ehhez az utazáshoz.
+              </p>
+            )}
+
+            {!filesLoading && files.docs.length > 0 && (
+              <ul className="mt-1 space-y-1 text-sm">
+                {files.docs.map((d) => (
+                  <li
+                    key={d.id}
+                    className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs text-slate-700"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => openFileModal(d)}
+                      className="flex-1 text-left hover:text-blue-700"
+                    >
+                      <span className="font-medium">{d.name}</span>{" "}
+                      <span className="ml-1 text-slate-500">
+                        ({d.mimeType || "ismeretlen típus"})
+                      </span>
+                    </button>
+                    <span
+                      className={classNames(
+                        "ml-1 inline-flex items-center rounded-full px-1.5 py-0.5",
+                        d.visibility === "public"
+                          ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                          : "bg-slate-100 text-slate-700 ring-1 ring-slate-200"
+                      )}
+                    >
+                      {d.visibility === "public" ? "publikus" : "privát"}
+                    </span>
+                    <span className="ml-1 text-slate-500">
+                      {bytesToKb(d.size)}
+                    </span>
+                    {d.canManage && (
+                      <div className="ml-1 flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleVisibility(d)}
+                          className="rounded border border-slate-300 px-1.5 py-0.5 text-[11px] text-slate-700 hover:border-blue-400 hover:text-blue-700"
+                        >
+                          {d.visibility === "public"
+                            ? "Priváttá"
+                            : "Publikussá"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(d)}
+                          className="rounded border border-red-300 px-1.5 py-0.5 text-[11px] text-red-600 hover:bg-red-50"
+                        >
+                          🗑
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
+
+        {/* Nagykép / doksi MODÁL */}
+        {modalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+            <div className="relative flex max-h-full w-full max-w-4xl flex-col rounded-xl bg-slate-900 text-slate-50 shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-700 px-4 py-2">
+                <h3 className="text-sm font-medium truncate">{modalTitle}</h3>
+                <button
+                  type="button"
+                  onClick={() => setModalOpen(false)}
+                  className="rounded bg-slate-800 px-2 py-1 text-xs hover:bg-slate-700"
+                >
+                  Bezárás ✕
+                </button>
+              </div>
+              <div className="flex-1 overflow-auto bg-slate-950/80 p-4">
+                {modalLoading && (
+                  <div className="flex h-64 items-center justify-center text-sm text-slate-300">
+                    Betöltés…
+                  </div>
+                )}
+                {modalError && !modalLoading && (
+                  <div className="rounded border border-red-400 bg-red-900/40 px-3 py-2 text-sm text-red-100">
+                    {modalError}
+                  </div>
+                )}
+                {!modalLoading && !modalError && modalDataUrl && (
+                  <>
+                    {modalMime.startsWith("image/") ? (
+                      <img
+                        src={modalDataUrl}
+                        alt={modalTitle}
+                        className="mx-auto max-h-[70vh] max-w-full object-contain"
+                      />
+                    ) : (
+                      <iframe
+                        title={modalTitle || "Dokumentum"}
+                        src={modalDataUrl}
+                        className="h-[70vh] w-full rounded bg-white"
+                      />
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </main>
   );
 }
